@@ -1,432 +1,554 @@
-// web/src/services/categoryService.js
+// web/src/services/courseService.js - 언어별 비디오 URL 지원 추가
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
+    updateDoc,
+    query,
+    where,
+    orderBy,
+    limit,
+    startAfter,
+    serverTimestamp,
+    addDoc,
+    documentId
+} from 'firebase/firestore'
+import { db } from './firebase'
+import { FIREBASE_COLLECTIONS, FLASK_SUBCOLLECTIONS } from '@/utils/constants'
 
-/**
- * 카테고리 관리 서비스
- * - Flutter VideoService와 동일한 카테고리 구조 사용
- * - 다국어 지원 (현재는 한국어 기준, 추후 확장)
- * - 중앙화된 카테고리 관리로 일관성 보장
- * - 🔥 Firebase uploads 데이터와 호환
- */
-export class CategoryService {
-    // 🌟 메인 탭 리스트 (한국어 기준) - Flutter와 동일
-    static MAIN_TABS_KOREAN = ['전체', '기계', '공구', '장비', '약품']
+class CourseService {
+    // 캐시 설정
+    static CACHE_KEY = 'courses_cache'
+    static CACHE_DURATION = 5 * 60 * 1000 // 5분
+    static PAGE_SIZE = 20
 
-    // 🌟 메인 탭 → 중간 카테고리 매핑 (한국어) - Flutter와 동일
-    static MAIN_TO_MID_KOREAN = {
-        '전체': [
-            // 기계 관련
-            '건설기계', '공작기계', '산업기계', '제조기계',
-            // 공구 관련
-            '수공구', '전동공구', '절삭공구', '측정공구',
-            // 장비 관련
-            '안전장비', '운송장비',
-            // 약품 관련
-            '의약품', '화공약품'
-        ],
-        '기계': ['건설기계', '공작기계', '산업기계', '제조기계'],
-        '공구': ['수공구', '전동공구', '절삭공구', '측정공구'],
-        '장비': ['안전장비', '운송장비'],
-        '약품': ['의약품', '화공약품']
-    }
-
-    // 🔧 중간 카테고리 → 리프 카테고리 매핑 (한국어) - Flutter와 동일
-    static MID_TO_LEAF_KOREAN = {
-        // 🔧 기계 관련 리프 카테고리
-        '건설기계': ['불도저', '크레인', '굴착기'], // 🔥 굴착기 추가 (Firebase 데이터 호환)
-        '공작기계': ['CNC 선반', '연삭기'], // 절삭기 제거
-        '산업기계': ['굴착기', '유압 프레스'], // 굴착기 유지 (기존 호환성)
-        '제조기계': ['사출 성형기', '열 성형기'], // 프레스기 제거
-
-        // 🔧 공구 관련 리프 카테고리
-        '수공구': ['플라이어', '해머'], // 🔥 전동드릴 제거 (전동공구로 이동)
-        '전동공구': ['그라인더', '전동톱', '해머드릴', '전동드릴'], // 🔥 전동드릴 추가
-        '절삭공구': ['가스 용접기', '커터'], // 플라즈마 노즐, 드릴 비트 제거하고 가스 용접기 추가
-        '측정공구': ['마이크로미터', '하이트 게이지'], // 캘리퍼스 제거
-
-        // 장비 관련 - 변경 없음
-        '안전장비': [
-            '헬멧', '방진 마스크', '낙하 방지벨트',
-            '안전모', '안전화', '보호안경',
-            '귀마개', '보호장갑', '호흡 보호구'
-        ],
-        '운송장비': ['리프트 장비', '체인 블록', '호이스트'],
-
-        // 🔧 약품 관련 리프 카테고리
-        '의약품': ['인슐린', '항생제'], // 항응고제 제거, 순서 변경
-        '화공약품': ['황산', '염산'] // 수산화나트륨 제거
-    }
-
-    // 🌍 다국어 번역 매핑 (추후 확장 예정)
-    static TRANSLATIONS = {
-        // 메인 카테고리
-        mainCategories: {
-            '전체': { ko: '전체', en: 'All' },
-            '기계': { ko: '기계', en: 'Machinery' },
-            '공구': { ko: '공구', en: 'Tools' },
-            '장비': { ko: '장비', en: 'Equipment' },
-            '약품': { ko: '약품', en: 'Chemicals' }
-        },
-        // 중간 카테고리
-        midCategories: {
-            '건설기계': { ko: '건설기계', en: 'Construction Machinery' },
-            '공작기계': { ko: '공작기계', en: 'Machine Tools' },
-            '산업기계': { ko: '산업기계', en: 'Industrial Machinery' },
-            '제조기계': { ko: '제조기계', en: 'Manufacturing Machinery' },
-            '수공구': { ko: '수공구', en: 'Hand Tools' },
-            '전동공구': { ko: '전동공구', en: 'Power Tools' },
-            '절삭공구': { ko: '절삭공구', en: 'Cutting Tools' },
-            '측정공구': { ko: '측정공구', en: 'Measuring Tools' },
-            '안전장비': { ko: '안전장비', en: 'Safety Equipment' },
-            '운송장비': { ko: '운송장비', en: 'Transport Equipment' },
-            '의약품': { ko: '의약품', en: 'Medicine' },
-            '화공약품': { ko: '화공약품', en: 'Chemical Agent' }
-        }
-    }
-
-    // ============== 🔥 Firebase 호환을 위한 추가 메서드들 ==============
+    // 메모리 캐시
+    static memoryCache = new Map()
 
     /**
-     * 🔥 Firebase 업로드 카테고리 구조 검증 (추가)
-     * @param {string} main 메인 카테고리
-     * @param {string} sub 서브 카테고리 (middle)
-     * @param {string} leaf 리프 카테고리
-     * @returns {boolean} 유효성 여부
+     * 메모리 캐시 관리
      */
-    static isValidCategoryPath(main, sub, leaf) {
-        try {
-            // 1. 메인 카테고리 검증
-            if (!this.MAIN_TABS_KOREAN.includes(main)) {
-                console.warn(`❌ 잘못된 메인 카테고리: ${main}`)
-                return false
-            }
+    static getFromMemoryCache(key) {
+        const cached = this.memoryCache.get(key)
+        if (!cached) return null
 
-            // 2. 서브 카테고리 검증
-            const validSubs = this.MAIN_TO_MID_KOREAN[main] || []
-            if (!validSubs.includes(sub)) {
-                console.warn(`❌ 잘못된 서브 카테고리: ${main}>${sub}`)
-                return false
-            }
-
-            // 3. 리프 카테고리 검증
-            const validLeafs = this.MID_TO_LEAF_KOREAN[sub] || []
-            if (!validLeafs.includes(leaf)) {
-                console.warn(`❌ 잘못된 리프 카테고리: ${sub}>${leaf}`)
-                return false
-            }
-
-            return true
-        } catch (error) {
-            console.error('카테고리 경로 검증 오류:', error)
-            return false
-        }
-    }
-
-    /**
-     * 🔥 Firebase 데이터를 위한 카테고리 정규화 (추가)
-     * @param {Object} firebaseData Firebase 업로드 데이터
-     * @returns {Object} 정규화된 카테고리 객체
-     */
-    static normalizeCategoryFromFirebase(firebaseData) {
-        return {
-            main: firebaseData.main_category || firebaseData.category || '',
-            middle: firebaseData.sub_category || '',
-            leaf: firebaseData.sub_sub_category || ''
-        }
-    }
-
-    /**
-     * 🔥 디버깅을 위한 카테고리 매핑 출력 (추가)
-     */
-    static debugCategoryMapping() {
-        console.log('=== 카테고리 구조 ===')
-        console.log('메인 카테고리:', this.MAIN_TABS_KOREAN)
-        console.log('메인 → 중간 매핑:', this.MAIN_TO_MID_KOREAN)
-        console.log('중간 → 리프 매핑:', this.MID_TO_LEAF_KOREAN)
-    }
-
-    // ============== 기존 메서드들 ==============
-
-    /**
-     * 메인 카테고리 목록 가져오기
-     * @param {boolean} includeAll '전체' 포함 여부
-     * @returns {string[]} 메인 카테고리 배열
-     */
-    static getMainCategories(includeAll = false) {
-        if (includeAll) {
-            return [...this.MAIN_TABS_KOREAN]
-        }
-        return this.MAIN_TABS_KOREAN.filter(cat => cat !== '전체')
-    }
-
-    /**
-     * 특정 메인 카테고리의 중간 카테고리 목록
-     * @param {string} mainCategory 메인 카테고리
-     * @returns {string[]} 중간 카테고리 배열
-     */
-    static getMiddleCategories(mainCategory) {
-        return this.MAIN_TO_MID_KOREAN[mainCategory] || []
-    }
-
-    /**
-     * 특정 중간 카테고리의 리프 카테고리 목록
-     * @param {string} mainCategory 메인 카테고리
-     * @param {string} middleCategory 중간 카테고리
-     * @returns {string[]} 리프 카테고리 배열
-     */
-    static getLeafCategories(mainCategory, middleCategory) {
-        return this.MID_TO_LEAF_KOREAN[middleCategory] || []
-    }
-
-    /**
-     * 메인 탭 리스트 반환
-     * @param {string} lang 언어 코드 (기본값: 'ko')
-     * @returns {string[]} 메인 탭 배열
-     */
-    static getMainTabs(lang = 'ko') {
-        if (lang === 'ko') {
-            return [...this.MAIN_TABS_KOREAN]
+        if (Date.now() - cached.timestamp > this.CACHE_DURATION) {
+            this.memoryCache.delete(key)
+            return null
         }
 
-        // 추후 다국어 지원 시 확장
-        return [...this.MAIN_TABS_KOREAN]
+        return cached.data
+    }
+
+    static setMemoryCache(key, data) {
+        this.memoryCache.set(key, {
+            data,
+            timestamp: Date.now()
+        })
     }
 
     /**
-     * 메인 → 중간 카테고리 매핑 반환
-     * @param {string} lang 언어 코드
-     * @returns {Object} 매핑 객체
+     * uploads 데이터를 courses 형식으로 변환 (올바른 데이터 구조 + hasVideo 필드 추가)
      */
-    static getMainToMidMapping(lang = 'ko') {
-        if (lang === 'ko') {
-            return { ...this.MAIN_TO_MID_KOREAN }
-        }
+    static convertUploadToCourse(uploadDoc) {
+        const data = uploadDoc.data()
 
-        // 추후 다국어 지원 시 확장
-        return { ...this.MAIN_TO_MID_KOREAN }
-    }
-
-    /**
-     * 중간 → 리프 카테고리 매핑 반환
-     * @param {string} lang 언어 코드
-     * @returns {Object} 매핑 객체
-     */
-    static getMidToLeafMapping(lang = 'ko') {
-        if (lang === 'ko') {
-            return { ...this.MID_TO_LEAF_KOREAN }
-        }
-
-        // 추후 다국어 지원 시 확장
-        return { ...this.MID_TO_LEAF_KOREAN }
-    }
-
-    /**
-     * 특정 메인 카테고리의 모든 하위 카테고리 반환
-     * @param {string} mainCategory 메인 카테고리명
-     * @param {string} lang 언어 코드
-     * @returns {string[]} 중간 + 리프 카테고리 배열
-     */
-    static getAllSubCategories(mainCategory, lang = 'ko') {
-        const midCategories = this.MAIN_TO_MID_KOREAN[mainCategory] || []
-        const allSubCategories = [...midCategories]
-
-        // 각 중간 카테고리의 리프 카테고리들도 추가
-        midCategories.forEach(midCat => {
-            const leafCategories = this.MID_TO_LEAF_KOREAN[midCat] || []
-            allSubCategories.push(...leafCategories)
+        // 원본 데이터 로깅 (디버깅용)
+        console.log('📄 원본 uploads 데이터:', {
+            id: uploadDoc.id,
+            group_name: data.group_name,
+            video_url: data.video_url,
+            videoUrl: data.videoUrl,
+            hasVideo: data.hasVideo,
+            data_keys: Object.keys(data).slice(0, 10) // 처음 10개 키만
         })
 
-        return allSubCategories
-    }
+        // 비디오 URL 체크 - 여러 필드명 지원
+        const videoUrl = data.video_url || data.videoUrl || data.video_link || ''
+        const hasVideo = !!videoUrl && videoUrl.trim() !== ''
 
-    /**
-     * 카테고리 매칭 검사 (검색/필터링용)
-     * @param {string} targetCategory 검색할 카테고리
-     * @param {string[]} itemCategories 아이템의 카테고리들 [main, mid, leaf]
-     * @returns {boolean} 매칭 여부
-     */
-    static matchesCategory(targetCategory, itemCategories) {
-        const [mainCat, subCat, leafCat] = itemCategories
-        const allCats = [mainCat, subCat, leafCat].filter(Boolean)
-
-        let searchCats = []
-
-        // 메인 탭인 경우
-        if (this.MAIN_TABS_KOREAN.includes(targetCategory)) {
-            const mids = this.MAIN_TO_MID_KOREAN[targetCategory] || []
-            searchCats = [
-                targetCategory,
-                ...mids,
-                ...mids.flatMap(m => this.MID_TO_LEAF_KOREAN[m] || [])
-            ]
-        }
-        // 중간 카테고리인 경우
-        else if (this.isMiddleCategory(targetCategory)) {
-            searchCats = [
-                targetCategory,
-                ...(this.MID_TO_LEAF_KOREAN[targetCategory] || [])
-            ]
-        }
-        // 리프 카테고리인 경우
-        else {
-            searchCats = [targetCategory]
-        }
-
-        return allCats.some(cat => searchCats.includes(cat))
-    }
-
-    /**
-     * 중간 카테고리 여부 확인
-     * @param {string} category 카테고리명
-     * @returns {boolean} 중간 카테고리 여부
-     */
-    static isMiddleCategory(category) {
-        return Object.values(this.MAIN_TO_MID_KOREAN)
-            .flat()
-            .includes(category)
-    }
-
-    /**
-     * 리프 카테고리 여부 확인
-     * @param {string} category 카테고리명
-     * @returns {boolean} 리프 카테고리 여부
-     */
-    static isLeafCategory(category) {
-        return Object.values(this.MID_TO_LEAF_KOREAN)
-            .flat()
-            .includes(category)
-    }
-
-    /**
-     * 카테고리 타입 반환
-     * @param {string} category 카테고리명
-     * @returns {string} 'main' | 'middle' | 'leaf' | 'unknown'
-     */
-    static getCategoryType(category) {
-        if (this.MAIN_TABS_KOREAN.includes(category)) {
-            return 'main'
-        }
-        if (this.isMiddleCategory(category)) {
-            return 'middle'
-        }
-        if (this.isLeafCategory(category)) {
-            return 'leaf'
-        }
-        return 'unknown'
-    }
-
-    /**
-     * 카테고리 번역
-     * @param {string} category 카테고리명 (한국어)
-     * @param {string} lang 대상 언어
-     * @returns {string} 번역된 카테고리명
-     */
-    static translateCategory(category, lang = 'ko') {
-        if (lang === 'ko') {
-            return category
-        }
-
-        // 추후 다국어 지원 시 구현
-        return category
-    }
-
-    /**
-     * 카테고리 스타일 클래스 반환 (UI용)
-     * @param {string} category 카테고리명
-     * @returns {string} CSS 클래스명
-     */
-    static getCategoryStyle(category) {
-        // 메인 카테고리별 색상 스타일
-        const mainCategory = this.getMainCategoryForItem(category)
-
-        const styleMap = {
-            '기계': 'bg-blue-100 text-blue-800',
-            '공구': 'bg-green-100 text-green-800',
-            '장비': 'bg-purple-100 text-purple-800',
-            '약품': 'bg-red-100 text-red-800'
-        }
-
-        return styleMap[mainCategory] || 'bg-gray-100 text-gray-800'
-    }
-
-    /**
-     * 아이템 카테고리로부터 메인 카테고리 찾기
-     * @param {string} category 중간 또는 리프 카테고리
-     * @returns {string} 메인 카테고리명
-     */
-    static getMainCategoryForItem(category) {
-        // 이미 메인 카테고리인 경우
-        if (this.MAIN_TABS_KOREAN.includes(category)) {
-            return category
-        }
-
-        // 중간 카테고리인 경우
-        for (const [mainCat, midCats] of Object.entries(this.MAIN_TO_MID_KOREAN)) {
-            if (midCats.includes(category)) {
-                return mainCat
-            }
-        }
-
-        // 리프 카테고리인 경우
-        for (const [midCat, leafCats] of Object.entries(this.MID_TO_LEAF_KOREAN)) {
-            if (leafCats.includes(category)) {
-                return this.getMainCategoryForItem(midCat)
-            }
-        }
-
-        return '전체'
-    }
-
-    /**
-     * 카테고리 검증
-     * @param {string[]} categories [main, middle, leaf] 형태의 카테고리 배열
-     * @returns {Object} 유효성 검사 결과
-     */
-    static validateCategories(categories) {
-        const [main, middle, leaf] = categories
-        const errors = []
-
-        // 메인 카테고리 검증
-        if (main && !this.MAIN_TABS_KOREAN.includes(main)) {
-            errors.push(`유효하지 않은 메인 카테고리: ${main}`)
-        }
-
-        // 중간 카테고리 검증
-        if (middle) {
-            if (!this.isMiddleCategory(middle)) {
-                errors.push(`유효하지 않은 중간 카테고리: ${middle}`)
-            } else if (main && !(this.MAIN_TO_MID_KOREAN[main] || []).includes(middle)) {
-                errors.push(`메인 카테고리 ${main}에 속하지 않는 중간 카테고리: ${middle}`)
-            }
-        }
-
-        // 리프 카테고리 검증
-        if (leaf) {
-            if (!this.isLeafCategory(leaf)) {
-                errors.push(`유효하지 않은 리프 카테고리: ${leaf}`)
-            } else if (middle && !(this.MID_TO_LEAF_KOREAN[middle] || []).includes(leaf)) {
-                errors.push(`중간 카테고리 ${middle}에 속하지 않는 리프 카테고리: ${leaf}`)
-            }
-        }
+        // Railway 프록시 URL 생성 (비디오 URL이 없을 때 폴백)
+        const baseUrl = import.meta.env.VITE_API_URL || ''
+        const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
 
         return {
-            isValid: errors.length === 0,
-            errors
+            id: uploadDoc.id,
+            // 기본 정보 (올바른 필드명 사용)
+            title: data.group_name || data.title || '제목 없음',
+            description: data.content_description || data.description || '',
+
+            // 카테고리 정보
+            category: {
+                main: data.main_category || '',
+                middle: data.sub_category || '',
+                leaf: data.sub_sub_category || ''
+            },
+
+            // 미디어 정보 (hasVideo 필드 추가)
+            videoUrl: fallbackVideoUrl,
+            hasVideo: hasVideo, // hasVideo 필드 명시적 추가
+            thumbnailUrl: data.thumbnail_url || data.thumbnailUrl || '/default-thumbnail.jpg',
+            qrUrl: data.qr_url || data.qrUrl || '',
+
+            // 학습 정보
+            duration: data.duration_string || data.duration || '30분',
+            difficulty: data.difficulty || 'intermediate',
+
+            // 메타데이터
+            uploadedAt: data.upload_date || new Date(),
+            createdAt: data.createdAt || data.upload_date || new Date(),
+            updatedAt: data.updatedAt || new Date(),
+
+            // 통계 정보
+            enrolledCount: data.enrolled_count || data.enrolledCount || 0,
+            completedCount: data.completed_count || data.completedCount || 0,
+            completionRate: data.completion_rate || 0,
+            rating: data.rating || 0,
+            reviewCount: data.review_count || data.reviewCount || 0,
+
+            // 언어 정보
+            languageVideos: data.language_videos || {},
+            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
+            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
+            hasLanguageVideos: false, // 나중에 로드
+
+            // Railway 프록시 정보
+            railwayProxyEnabled: data.railway_proxy_enabled !== false,
+            originalS3Key: data.s3_key || '',
+
+            // 태그 (카테고리 기반 자동 생성)
+            tags: [data.main_category, data.sub_category, data.sub_sub_category].filter(Boolean),
+
+            // 원본 데이터 참조 (디버깅용)
+            _originalData: data
         }
     }
 
     /**
-     * 카테고리 경로 문자열 생성
-     * @param {Object} category { main, middle, leaf } 객체
-     * @returns {string} "메인 > 중간 > 리프" 형태의 문자열
+     * 언어별 비디오 URL 가져오기
      */
-    static getCategoryPath(category) {
-        const parts = []
-        if (category.main) parts.push(category.main)
-        if (category.middle) parts.push(category.middle)
-        if (category.leaf) parts.push(category.leaf)
-        return parts.join(' > ')
+    static getVideoUrlForLanguage(course, language = 'ko') {
+        if (!course) return null
+
+        // 언어별 비디오 정보 확인
+        if (course.languageVideos && course.languageVideos[language]) {
+            const langVideo = course.languageVideos[language]
+            const videoUrl = langVideo.video_url || langVideo.videoUrl || ''
+
+            if (videoUrl) {
+                console.log(`🌍 ${language} 언어 비디오 URL 발견:`, videoUrl)
+                return videoUrl
+            }
+        }
+
+        // 한국어로 폴백
+        if (language !== 'ko' && course.languageVideos && course.languageVideos.ko) {
+            const koVideo = course.languageVideos.ko
+            const koVideoUrl = koVideo.video_url || koVideo.videoUrl || ''
+
+            if (koVideoUrl) {
+                console.log(`🌍 한국어 비디오 URL로 폴백:`, koVideoUrl)
+                return koVideoUrl
+            }
+        }
+
+        // 기본 비디오 URL 사용
+        if (course.videoUrl) {
+            console.log(`📹 기본 비디오 URL 사용:`, course.videoUrl)
+            return course.videoUrl
+        }
+
+        // 최종 폴백: Railway 프록시 URL
+        const baseUrl = import.meta.env.VITE_API_URL || ''
+        const fallbackUrl = `${baseUrl}/watch/${course.id}?lang=${language}`
+        console.log(`🔄 Railway 프록시 URL로 폴백:`, fallbackUrl)
+        return fallbackUrl
+    }
+
+    /**
+     * uploads 컬렉션에서 전체 강의 목록 가져오기
+     */
+    static async getCoursesFromUploads() {
+        try {
+            console.log('🔄 Firebase uploads에서 강의 로드 시작...')
+
+            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
+            const q = query(uploadsRef, orderBy('upload_date', 'desc'))
+            const snapshot = await getDocs(q)
+
+            console.log(`📊 uploads 컬렉션에서 ${snapshot.size}개 문서 발견`)
+
+            const courses = []
+
+            for (const doc of snapshot.docs) {
+                try {
+                    const course = this.convertUploadToCourse(doc)
+
+                    // language_videos 서브컬렉션 로드
+                    try {
+                        const langVideosRef = collection(doc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
+                        const langVideosSnapshot = await getDocs(langVideosRef)
+
+                        const languageVideos = {}
+                        langVideosSnapshot.forEach(langDoc => {
+                            const langData = langDoc.data()
+                            languageVideos[langDoc.id] = {
+                                ...langData,
+                                // video_url 필드 정규화
+                                video_url: langData.video_url || langData.videoUrl || langData.video_link || ''
+                            }
+                        })
+
+                        course.languageVideos = languageVideos
+                        course.availableLanguages = Object.keys(languageVideos).length > 0
+                            ? Object.keys(languageVideos)
+                            : ['ko'] // 기본값으로 한국어 설정
+                        course.hasMultipleLanguages = course.availableLanguages.length > 1
+                        course.hasLanguageVideos = Object.keys(languageVideos).length > 0
+
+                        console.log(`🌍 ${doc.id} 언어별 비디오:`, course.availableLanguages)
+                    } catch (error) {
+                        console.warn(`언어별 비디오 로드 실패 (${doc.id}):`, error)
+                        // 서브컬렉션 로드 실패해도 기본값 설정
+                        course.availableLanguages = ['ko']
+                    }
+
+                    courses.push(course)
+                } catch (error) {
+                    console.error(`강의 변환 실패 (${doc.id}):`, error)
+                }
+            }
+
+            console.log(`✅ uploads에서 ${courses.length}개 강의 로드 완료`)
+            return courses
+        } catch (error) {
+            console.error('uploads 강의 목록 조회 오류:', error)
+            throw error
+        }
+    }
+
+    /**
+     * Firestore에서 전체 강의 목록 가져오기 (캐싱 적용)
+     */
+    static async getCoursesFromFirestore() {
+        try {
+            // 1. 먼저 캐시 확인
+            const cachedCourses = this.getCachedCourses()
+            if (cachedCourses) {
+                return { courses: cachedCourses, fromCache: true }
+            }
+
+            // 2. uploads 컬렉션에서 데이터 로드
+            const courses = await this.getCoursesFromUploads()
+
+            // 3. 캐시에 저장
+            this.setCachedCourses(courses)
+
+            return { courses, fromCache: false }
+        } catch (error) {
+            console.error('Firestore 강의 목록 조회 오류:', error)
+
+            if (error.code === 'permission-denied') {
+                console.warn('Firestore 권한이 거부되었습니다.')
+                return { courses: [], fromCache: false }
+            }
+
+            throw error
+        }
+    }
+
+    /**
+     * 로컬스토리지에서 캐시된 강의 목록 가져오기
+     */
+    static getCachedCourses() {
+        try {
+            const cached = localStorage.getItem(this.CACHE_KEY)
+            if (!cached) return null
+
+            const { data, timestamp } = JSON.parse(cached)
+            if (Date.now() - timestamp > this.CACHE_DURATION) {
+                localStorage.removeItem(this.CACHE_KEY)
+                return null
+            }
+
+            console.log('📦 캐시에서 강의 목록 로드')
+            return data
+        } catch (error) {
+            console.error('캐시 로드 오류:', error)
+            return null
+        }
+    }
+
+    /**
+     * 로컬스토리지에 강의 목록 캐시 저장
+     */
+    static setCachedCourses(courses) {
+        try {
+            const cacheData = {
+                data: courses,
+                timestamp: Date.now()
+            }
+            localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData))
+            console.log('💾 강의 목록 캐시 저장')
+        } catch (error) {
+            console.error('캐시 저장 오류:', error)
+        }
+    }
+
+    /**
+     * 강의 상세 정보 가져오기 (언어별 비디오 포함)
+     */
+    static async getCourseById(courseId) {
+        try {
+            console.log(`🔍 강의 상세 조회 시작: ${courseId}`)
+
+            // 캐시 확인
+            const cacheKey = `course_${courseId}`
+            const cached = this.getFromMemoryCache(cacheKey)
+            if (cached) {
+                console.log(`📦 메모리 캐시에서 강의 상세 로드: ${courseId}`)
+                return cached
+            }
+
+            // Firestore 조회
+            const courseDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId))
+
+            if (courseDoc.exists()) {
+                console.log(`✅ Firestore에서 강의 발견: ${courseId}`)
+                const course = this.convertUploadToCourse(courseDoc)
+
+                // language_videos 서브컬렉션 로드
+                try {
+                    const langVideosRef = collection(courseDoc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
+                    const langVideosSnapshot = await getDocs(langVideosRef)
+
+                    const languageVideos = {}
+                    langVideosSnapshot.forEach(langDoc => {
+                        const langData = langDoc.data()
+                        languageVideos[langDoc.id] = {
+                            ...langData,
+                            // video_url 필드 정규화
+                            video_url: langData.video_url || langData.videoUrl || langData.video_link || ''
+                        }
+                    })
+
+                    course.languageVideos = languageVideos
+                    course.availableLanguages = Object.keys(languageVideos).length > 0
+                        ? Object.keys(languageVideos)
+                        : ['ko']
+                    course.hasMultipleLanguages = course.availableLanguages.length > 1
+                    course.hasLanguageVideos = Object.keys(languageVideos).length > 0
+
+                    console.log(`🌍 언어별 비디오 로드 완료:`, course.availableLanguages)
+                } catch (error) {
+                    console.warn(`언어별 비디오 로드 실패:`, error)
+                }
+
+                // 캐시에 저장
+                this.setMemoryCache(cacheKey, course)
+
+                return course
+            }
+
+            console.warn(`⚠️ 강의를 찾을 수 없음: ${courseId}`)
+            return null
+        } catch (error) {
+            console.error('강의 상세 조회 오류:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 사용자별 수강 정보 가져오기
+     */
+    static async getUserEnrollments(userId) {
+        // 최적화된 메서드로 리다이렉트
+        const enrollmentsWithCourses = await this.getUserEnrollmentsWithCourses(userId)
+        return enrollmentsWithCourses
+    }
+
+    /**
+     * 사용자의 수강 정보와 관련 강의를 최적화된 방식으로 가져오기
+     */
+    static async getUserEnrollmentsWithCourses(userId) {
+        try {
+            // 1. 메모리 캐시 확인
+            const cacheKey = `enrollments_${userId}`
+            const cached = this.getFromMemoryCache(cacheKey)
+            if (cached) {
+                console.log('📦 메모리 캐시에서 enrollment 데이터 사용')
+                return cached
+            }
+
+            console.log('🔄 최적화된 enrollment 로드 시작...')
+
+            // 2. 사용자의 enrollment 조회
+            const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
+            const q = query(
+                enrollmentsRef,
+                where('userId', '==', userId),
+                orderBy('enrolledAt', 'desc')
+            )
+
+            const snapshot = await getDocs(q)
+
+            if (snapshot.empty) {
+                console.log('📭 수강 정보가 없습니다')
+                return []
+            }
+
+            // 3. courseId 수집
+            const courseIds = []
+            const enrollmentMap = new Map()
+
+            snapshot.forEach(doc => {
+                const data = doc.data()
+                courseIds.push(data.courseId)
+                enrollmentMap.set(data.courseId, {
+                    id: doc.id,
+                    ...data
+                })
+            })
+
+            // 4. 관련 강의 정보 한 번에 조회
+            const enrollmentsWithCourses = []
+
+            for (const courseId of courseIds) {
+                try {
+                    // 강의 정보 가져오기 (언어별 비디오 포함)
+                    const course = await this.getCourseById(courseId)
+
+                    if (course) {
+                        const enrollment = enrollmentMap.get(courseId)
+                        enrollmentsWithCourses.push({
+                            ...enrollment,
+                            course: course,
+                            courseId: courseId
+                        })
+                    }
+                } catch (error) {
+                    console.error(`강의 정보 로드 실패 (${courseId}):`, error)
+                }
+            }
+
+            // 5. 캐시 저장
+            this.setMemoryCache(cacheKey, enrollmentsWithCourses)
+
+            // 로컬스토리지에도 저장
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    data: enrollmentsWithCourses,
+                    timestamp: Date.now()
+                }))
+            } catch (e) {
+                console.warn('로컬스토리지 저장 실패:', e)
+            }
+
+            console.log(`✅ ${enrollmentsWithCourses.length}개 enrollment 최적화 로드 완료`)
+            return enrollmentsWithCourses
+        } catch (error) {
+            console.error('❌ 최적화된 enrollment 로드 실패:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 비디오 URL 가져오기 (언어별 지원)
+     */
+    static async getVideoUrl(videoId, language = 'ko') {
+        try {
+            // Railway 프록시 URL 반환
+            const baseUrl = import.meta.env.VITE_API_URL || ''
+            const videoUrl = `${baseUrl}/watch/${videoId}?lang=${language}`
+
+            console.log(`🎬 비디오 URL 생성: ${videoUrl}`)
+            return videoUrl
+        } catch (error) {
+            console.error('비디오 URL 생성 오류:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 수강 신청
+     */
+    static async enrollCourse(courseId, userId, isQRAccess = false) {
+        try {
+            const enrollmentData = {
+                courseId,
+                userId,
+                status: 'enrolled',
+                progress: 0,
+                enrolledAt: serverTimestamp(),
+                lastAccessedAt: serverTimestamp(),
+                isQRAccess,
+                completedAt: null
+            }
+
+            const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
+            const docRef = await addDoc(enrollmentsRef, enrollmentData)
+
+            return {
+                success: true,
+                enrollmentId: docRef.id
+            }
+        } catch (error) {
+            console.error('수강 신청 오류:', error)
+            return {
+                success: false,
+                error: error.message
+            }
+        }
+    }
+
+    /**
+     * 진도 업데이트
+     */
+    static async updateProgress(courseId, userId, progress, currentTime = 0) {
+        try {
+            const progressRef = doc(
+                db,
+                FIREBASE_COLLECTIONS.PROGRESS,
+                `${userId}_${courseId}`
+            )
+
+            await setDoc(progressRef, {
+                courseId,
+                userId,
+                progress,
+                currentTime,
+                lastUpdatedAt: serverTimestamp()
+            }, { merge: true })
+
+            // 100% 완료 시 수강 정보 업데이트
+            if (progress === 100) {
+                const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
+                const q = query(
+                    enrollmentsRef,
+                    where('userId', '==', userId),
+                    where('courseId', '==', courseId),
+                    limit(1)
+                )
+
+                const snapshot = await getDocs(q)
+                if (!snapshot.empty) {
+                    const enrollmentDoc = snapshot.docs[0]
+                    await updateDoc(enrollmentDoc.ref, {
+                        status: 'completed',
+                        progress: 100,
+                        completedAt: serverTimestamp()
+                    })
+                }
+            }
+
+            return { success: true }
+        } catch (error) {
+            console.error('진도 업데이트 오류:', error)
+            return { success: false, error: error.message }
+        }
     }
 }
 
-// default export도 제공 (하위 호환성)
-export default CategoryService
+export default CourseService

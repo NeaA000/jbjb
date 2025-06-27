@@ -99,6 +99,9 @@
             <div class="course-details">
               <p class="course-label">수강 예정 강의</p>
               <h4 class="course-title">{{ course.title }}</h4>
+              <p v-if="selectedLanguage !== 'ko'" class="course-language">
+                {{ getLanguageName(selectedLanguage) }}로 수강
+              </p>
             </div>
           </div>
 
@@ -158,6 +161,7 @@ const props = defineProps({
 
 // 상태
 const course = ref(null)
+const selectedLanguage = ref('ko')
 const checkItems = ref([
   {
     text: '현재 안전한 장소에 있으며, 작업 중이 아닙니다.',
@@ -176,6 +180,21 @@ const checkItems = ref([
     checked: false
   }
 ])
+
+// 언어 이름 맵핑
+const languageNames = {
+  ko: '한국어',
+  en: 'English',
+  zh: '中文',
+  vi: 'Tiếng Việt',
+  th: 'ภาษาไทย',
+  ja: '日本語'
+}
+
+// 언어 이름 가져오기
+const getLanguageName = (code) => {
+  return languageNames[code] || code.toUpperCase()
+}
 
 // 모든 항목 체크 여부
 const allChecked = computed(() => {
@@ -198,12 +217,20 @@ const loadCourse = async () => {
 const proceedToLearning = () => {
   if (!allChecked.value) return
 
-  // 학습 화면으로 이동
-  router.push(`/learning/${props.id}`)
+  // URL에서 언어 정보 가져오기
+  const selectedLang = route.query.lang || 'ko'
+
+  // 학습 화면으로 이동 (언어 정보 포함)
+  router.push({
+    path: `/learning/${props.id}`,
+    query: { lang: selectedLang }
+  })
 }
 
 // 마운트
 onMounted(() => {
+  // URL에서 언어 정보 가져오기
+  selectedLanguage.value = route.query.lang || 'ko'
   loadCourse()
 })
 </script>
@@ -214,260 +241,6 @@ onMounted(() => {
   min-height: 100vh;
   background: var(--bg-primary, #f8fafc);
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-/* =================== 배경 그라데이션 =================== */
-.background-gradient {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%);
-  opacity: 0.3;
-  pointer-events: none;
-}
-
-.background-gradient::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
-  border-radius: 50%;
-}
-
-/* =================== 컨테이너 =================== */
-.container {
-  max-width: 720px;
-  width: 100%;
-  margin: 0 auto;
-  position: relative;
-  z-index: 1;
-}
-
-.content-wrapper {
-  width: 100%;
-}
-
-/* =================== 경고 카드 =================== */
-.warning-card {
-  background: var(--bg-secondary, #ffffff);
-  border-radius: var(--radius-2xl, 1rem);
-  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
-  padding: 3rem;
-  animation: slideUp 0.6s ease-out;
-}
-
-@media (max-width: 768px) {
-  .warning-card {
-    padding: 2rem 1.5rem;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* =================== 아이콘 섹션 =================== */
-.icon-section {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 2rem;
-}
-
-.icon-wrapper {
-  width: 6rem;
-  height: 6rem;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
-  position: relative;
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.icon-wrapper svg {
-  color: white;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(0.95);
-  }
-}
-
-/* =================== 헤더 =================== */
-.card-header {
-  text-align: center;
-  margin-bottom: 2.5rem;
-}
-
-.title {
-  font-size: var(--text-2xl, 1.5rem);
-  font-weight: var(--font-bold, 700);
-  color: var(--text-primary, #111827);
-  margin: 0 0 0.75rem 0;
-  line-height: 1.2;
-}
-
-.subtitle {
-  font-size: var(--text-base, 1rem);
-  color: var(--text-secondary, #6b7280);
-  margin: 0;
-  line-height: 1.6;
-}
-
-/* =================== 경고 사항 =================== */
-.warnings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.warning-item {
-  display: flex;
-  gap: 1rem;
-  padding: 1.25rem;
-  border-radius: var(--radius-xl, 0.75rem);
-  border-left: 4px solid;
-  background: var(--bg-tertiary, #f9fafb);
-  transition: all var(--transition-base, 0.3s ease);
-}
-
-.warning-item:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
-}
-
-.warning-item.danger {
-  border-left-color: #ef4444;
-  background: rgba(239, 68, 68, 0.05);
-}
-
-.warning-item.caution {
-  border-left-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.05);
-}
-
-.warning-item.info {
-  border-left-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.05);
-}
-
-.warning-icon-wrapper {
-  flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-lg, 0.5rem);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: white;
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
-}
-
-.warning-item.danger .warning-icon-wrapper svg { color: #ef4444; }
-.warning-item.caution .warning-icon-wrapper svg { color: #f59e0b; }
-.warning-item.info .warning-icon-wrapper svg { color: #3b82f6; }
-
-.warning-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.warning-title {
-  font-size: var(--text-lg, 1.125rem);
-  font-weight: var(--font-semibold, 600);
-  margin: 0 0 0.25rem 0;
-  line-height: 1.25;
-}
-
-.warning-item.danger .warning-title { color: #dc2626; }
-.warning-item.caution .warning-title { color: #d97706; }
-.warning-item.info .warning-title { color: #2563eb; }
-
-.warning-text {
-  font-size: var(--text-sm, 0.875rem);
-  margin: 0;
-  line-height: 1.6;
-  color: var(--text-secondary, #6b7280);
-}
-
-/* =================== 체크리스트 =================== */
-.checklist-section {
-  background: var(--bg-tertiary, #f9fafb);
-  border: 1px solid var(--border-primary, #e5e7eb);
-  border-radius: var(--radius-xl, 0.75rem);
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.checklist-title {
-  font-size: var(--text-lg, 1.125rem);
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-primary, #111827);
-  margin: 0 0 1rem 0;
-}
-
-.checklist-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.checklist-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border-radius: var(--radius-lg, 0.5rem);
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.15s ease);
-}
-
-.checklist-item:hover {
-  background: rgba(34, 197, 94, 0.05);
-}
-
-.checklist-item.checked {
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.checkbox-wrapper {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.checkbox-input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.checkbox-custom {
-  width: 1.5rem;
-  height: 1.5rem;
-  border: 2px solid var(--border-secondary, #d1d5db);
-  border-radius: var(--radius-md, 0.375rem);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -540,6 +313,13 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.course-language {
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--primary, #3b82f6);
+  margin: 0.25rem 0 0 0;
+  font-weight: var(--font-medium, 500);
 }
 
 /* =================== 푸터 =================== */
@@ -648,4 +428,259 @@ onMounted(() => {
     transform: none;
   }
 }
-</style>
+</style> center;
+justify-content: center;
+padding: 1rem;
+}
+
+/* =================== 배경 그라데이션 =================== */
+.background-gradient {
+position: absolute;
+inset: 0;
+background: linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%);
+opacity: 0.3;
+pointer-events: none;
+}
+
+.background-gradient::before {
+content: '';
+position: absolute;
+top: -50%;
+right: -20%;
+width: 600px;
+height: 600px;
+background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
+border-radius: 50%;
+}
+
+/* =================== 컨테이너 =================== */
+.container {
+max-width: 720px;
+width: 100%;
+margin: 0 auto;
+position: relative;
+z-index: 1;
+}
+
+.content-wrapper {
+width: 100%;
+}
+
+/* =================== 경고 카드 =================== */
+.warning-card {
+background: var(--bg-secondary, #ffffff);
+border-radius: var(--radius-2xl, 1rem);
+box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+padding: 3rem;
+animation: slideUp 0.6s ease-out;
+}
+
+@media (max-width: 768px) {
+.warning-card {
+padding: 2rem 1.5rem;
+}
+}
+
+@keyframes slideUp {
+from {
+opacity: 0;
+transform: translateY(20px);
+}
+to {
+opacity: 1;
+transform: translateY(0);
+}
+}
+
+/* =================== 아이콘 섹션 =================== */
+.icon-section {
+display: flex;
+justify-content: center;
+margin-bottom: 2rem;
+}
+
+.icon-wrapper {
+width: 6rem;
+height: 6rem;
+background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+border-radius: 50%;
+display: flex;
+align-items: center;
+justify-content: center;
+box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+position: relative;
+animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.icon-wrapper svg {
+color: white;
+}
+
+@keyframes pulse {
+0%, 100% {
+opacity: 1;
+}
+50% {
+opacity: 0.8;
+transform: scale(0.95);
+}
+}
+
+/* =================== 헤더 =================== */
+.card-header {
+text-align: center;
+margin-bottom: 2.5rem;
+}
+
+.title {
+font-size: var(--text-2xl, 1.5rem);
+font-weight: var(--font-bold, 700);
+color: var(--text-primary, #111827);
+margin: 0 0 0.75rem 0;
+line-height: 1.2;
+}
+
+.subtitle {
+font-size: var(--text-base, 1rem);
+color: var(--text-secondary, #6b7280);
+margin: 0;
+line-height: 1.6;
+}
+
+/* =================== 경고 사항 =================== */
+.warnings-section {
+display: flex;
+flex-direction: column;
+gap: 1rem;
+margin-bottom: 2rem;
+}
+
+.warning-item {
+display: flex;
+gap: 1rem;
+padding: 1.25rem;
+border-radius: var(--radius-xl, 0.75rem);
+border-left: 4px solid;
+background: var(--bg-tertiary, #f9fafb);
+transition: all var(--transition-base, 0.3s ease);
+}
+
+.warning-item:hover {
+transform: translateY(-2px);
+box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+}
+
+.warning-item.danger {
+border-left-color: #ef4444;
+background: rgba(239, 68, 68, 0.05);
+}
+
+.warning-item.caution {
+border-left-color: #f59e0b;
+background: rgba(245, 158, 11, 0.05);
+}
+
+.warning-item.info {
+border-left-color: #3b82f6;
+background: rgba(59, 130, 246, 0.05);
+}
+
+.warning-icon-wrapper {
+flex-shrink: 0;
+width: 2.5rem;
+height: 2.5rem;
+border-radius: var(--radius-lg, 0.5rem);
+display: flex;
+align-items: center;
+justify-content: center;
+background: white;
+box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
+}
+
+.warning-item.danger .warning-icon-wrapper svg { color: #ef4444; }
+.warning-item.caution .warning-icon-wrapper svg { color: #f59e0b; }
+.warning-item.info .warning-icon-wrapper svg { color: #3b82f6; }
+
+.warning-content {
+flex: 1;
+min-width: 0;
+}
+
+.warning-title {
+font-size: var(--text-lg, 1.125rem);
+font-weight: var(--font-semibold, 600);
+margin: 0 0 0.25rem 0;
+line-height: 1.25;
+}
+
+.warning-item.danger .warning-title { color: #dc2626; }
+.warning-item.caution .warning-title { color: #d97706; }
+.warning-item.info .warning-title { color: #2563eb; }
+
+.warning-text {
+font-size: var(--text-sm, 0.875rem);
+margin: 0;
+line-height: 1.6;
+color: var(--text-secondary, #6b7280);
+}
+
+/* =================== 체크리스트 =================== */
+.checklist-section {
+background: var(--bg-tertiary, #f9fafb);
+border: 1px solid var(--border-primary, #e5e7eb);
+border-radius: var(--radius-xl, 0.75rem);
+padding: 1.5rem;
+margin-bottom: 1.5rem;
+}
+
+.checklist-title {
+font-size: var(--text-lg, 1.125rem);
+font-weight: var(--font-semibold, 600);
+color: var(--text-primary, #111827);
+margin: 0 0 1rem 0;
+}
+
+.checklist-items {
+display: flex;
+flex-direction: column;
+gap: 0.75rem;
+}
+
+.checklist-item {
+display: flex;
+align-items: flex-start;
+gap: 0.75rem;
+padding: 0.75rem;
+border-radius: var(--radius-lg, 0.5rem);
+cursor: pointer;
+transition: all var(--transition-fast, 0.15s ease);
+}
+
+.checklist-item:hover {
+background: rgba(34, 197, 94, 0.05);
+}
+
+.checklist-item.checked {
+background: rgba(34, 197, 94, 0.1);
+}
+
+.checkbox-wrapper {
+position: relative;
+flex-shrink: 0;
+}
+
+.checkbox-input {
+position: absolute;
+opacity: 0;
+width: 0;
+height: 0;
+}
+
+.checkbox-custom {
+width: 1.5rem;
+height: 1.5rem;
+border: 2px solid var(--border-secondary, #d1d5db);
+border-radius: var(--radius-md, 0.375rem);
+display: flex;
+align-items:
+}
