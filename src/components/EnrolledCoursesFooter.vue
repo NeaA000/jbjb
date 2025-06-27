@@ -8,259 +8,271 @@
       leave-from-class="translate-y-0 opacity-100"
       leave-to-class="translate-y-full opacity-0"
   >
-    <div
+    <nav
         v-if="courseStore.selectedCount > 0"
-        class="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-white to-white/95 backdrop-blur-xl border-t border-gray-100 shadow-2xl z-40"
+        class="selected-courses-footer"
+        role="navigation"
+        aria-label="선택된 강의 관리"
     >
       <!-- 모바일 뷰 -->
-      <div class="lg:hidden">
-        <div class="p-5">
+      <div class="footer-container mobile-view">
+        <div class="footer-content">
           <!-- 헤더 섹션 -->
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center space-x-3">
-              <div class="relative">
-                <div class="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full blur-lg opacity-60"></div>
-                <div class="relative bg-gradient-to-r from-blue-500 to-purple-500 p-2.5 rounded-full shadow-lg">
-                  <ShoppingCart class="w-5 h-5 text-white" />
-                </div>
+          <div class="footer-header">
+            <div class="selected-info">
+              <div class="icon-wrapper">
+                <ShoppingCart class="icon" aria-hidden="true" />
               </div>
-              <div>
-                <span class="text-sm text-gray-500 block">선택한 강의</span>
-                <span class="font-bold text-gray-900 text-lg">
-                  {{ courseStore.selectedCount }}개
+              <div class="text-info">
+                <h2 class="label" id="selected-courses-label">선택한 강의</h2>
+                <span class="count" aria-describedby="selected-courses-label">
+                  <span class="sr-only">총 </span>{{ courseStore.selectedCount }}개
                 </span>
               </div>
             </div>
             <button
                 @click="toggleExpanded"
-                class="group p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition-all duration-300 hover:shadow-md"
+                class="toggle-button"
+                :aria-label="isExpanded ? '선택한 강의 목록 닫기' : '선택한 강의 목록 열기'"
+                :aria-expanded="isExpanded"
+                aria-controls="selected-courses-list"
             >
               <ChevronUp
-                  :class="['w-5 h-5 text-gray-600 transition-all duration-500 group-hover:text-gray-900',
-                  { 'rotate-180': !isExpanded }]"
+                  :class="['toggle-icon', { 'rotate-180': !isExpanded }]"
+                  aria-hidden="true"
               />
             </button>
           </div>
 
-          <!-- 확장된 강의 목록 -->
-          <transition
-              enter-active-class="transition-all duration-500 ease-out"
-              enter-from-class="max-h-0 opacity-0 scale-95"
-              enter-to-class="max-h-96 opacity-100 scale-100"
-              leave-active-class="transition-all duration-300 ease-in"
-              leave-from-class="max-h-96 opacity-100 scale-100"
-              leave-to-class="max-h-0 opacity-0 scale-95"
-          >
-            <div v-if="isExpanded" class="overflow-hidden">
-              <div class="max-h-64 overflow-y-auto space-y-3 mb-4 pr-1 custom-scrollbar">
-                <transition-group
-                    name="list"
-                    tag="div"
-                    class="space-y-3"
-                >
-                  <div
+          <!-- 확장된 내용 -->
+          <transition name="expand">
+            <section
+                v-if="isExpanded"
+                class="expanded-content"
+                id="selected-courses-list"
+                role="region"
+                aria-label="선택된 강의 목록"
+            >
+              <!-- 선택된 강의 목록 -->
+              <div class="course-list">
+                <transition-group name="list">
+                  <article
                       v-for="course in selectedCourses"
                       :key="course.id"
-                      class="group bg-gradient-to-r from-gray-50 to-gray-50/50 hover:from-blue-50 hover:to-purple-50 rounded-2xl p-4 flex items-center justify-between transition-all duration-300 hover:shadow-lg hover:scale-[1.02] border border-gray-100"
+                      class="course-item"
+                      role="article"
+                      :aria-label="`선택된 강의: ${course.title}`"
                   >
-                    <div class="flex-1 min-w-0 mr-3">
-                      <h4 class="text-sm font-semibold text-gray-900 truncate group-hover:text-blue-700 transition-colors">
-                        {{ course.title }}
-                      </h4>
-                      <p class="text-xs text-gray-500 mt-1 flex items-center">
-                        <span class="inline-block w-1.5 h-1.5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full mr-2"></span>
-                        {{ getCategoryDisplayPath(course) }}
-                      </p>
+                    <div class="course-info">
+                      <h3 class="course-title">{{ course.title }}</h3>
+                      <div class="course-meta">
+                        <span class="meta-item">
+                          <Clock class="meta-icon" aria-hidden="true" />
+                          <span class="sr-only">소요시간: </span>{{ course.duration || '30분' }}
+                        </span>
+                        <span class="meta-separator" aria-hidden="true">•</span>
+                        <span class="meta-item">
+                          <BarChart class="meta-icon" aria-hidden="true" />
+                          <span class="sr-only">난이도: </span>{{ getDifficultyText(course.difficulty) }}
+                        </span>
+                      </div>
                     </div>
                     <button
                         @click="removeFromSelected(course.id)"
-                        class="group/btn p-2 rounded-xl bg-white hover:bg-red-50 transition-all duration-300 hover:shadow-md border border-gray-100 hover:border-red-200"
+                        class="remove-button"
+                        :aria-label="`${course.title} 선택 취소`"
                     >
-                      <X class="w-4 h-4 text-gray-400 group-hover/btn:text-red-500 transition-colors" />
+                      <Trash2 class="remove-icon" aria-hidden="true" />
                     </button>
-                  </div>
+                  </article>
                 </transition-group>
               </div>
-            </div>
+
+              <!-- 전체 취소 버튼 -->
+              <button
+                  @click="clearAll"
+                  class="clear-all-button"
+                  aria-label="선택한 모든 강의 취소"
+              >
+                전체 취소
+              </button>
+            </section>
           </transition>
 
           <!-- 액션 버튼들 -->
-          <div class="flex gap-3">
+          <div class="action-buttons">
             <button
-                @click="clearAll"
-                class="flex-1 relative overflow-hidden group px-5 py-4 text-sm font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-all duration-300 hover:shadow-lg border border-gray-200"
+                @click="showDetailModal = true"
+                class="action-button secondary"
+                aria-label="선택한 강의 상세 보기"
             >
-              <span class="relative z-10 flex items-center justify-center">
-                <Trash2 class="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-                전체 취소
-              </span>
-              <div class="absolute inset-0 bg-gradient-to-r from-gray-100 to-gray-200 opacity-0 group-hover:opacity-20 transition-opacity"></div>
+              <Eye class="button-icon" aria-hidden="true" />
+              <span>상세보기</span>
             </button>
             <button
                 @click="proceedToEnroll"
                 :disabled="isProcessing"
-                class="flex-1 relative overflow-hidden group px-5 py-4 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 rounded-2xl transition-all duration-300 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transform hover:scale-[1.02]"
+                class="action-button primary"
+                :aria-label="isProcessing ? '수강 신청 처리 중' : '선택한 강의 수강 신청하기'"
+                :aria-busy="isProcessing"
             >
-              <span class="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></span>
-              <Loader2 v-if="isProcessing" class="w-4 h-4 mr-2 animate-spin" />
-              <ShoppingBag v-else class="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-              <span class="relative">{{ isProcessing ? '처리 중...' : '수강 신청하기' }}</span>
+              <Loader2 v-if="isProcessing" class="button-icon animate-spin" aria-hidden="true" />
+              <ShoppingBag v-else class="button-icon" aria-hidden="true" />
+              <span>{{ isProcessing ? '처리 중...' : '수강 신청하기' }}</span>
             </button>
           </div>
 
           <!-- 프로그레스 바 (처리 중일 때) -->
-          <div v-if="isProcessing" class="mt-3">
-            <div class="h-1 bg-gray-200 rounded-full overflow-hidden">
-              <div class="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-progress"></div>
+          <div v-if="isProcessing" class="progress-wrapper" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="수강 신청 처리 진행률">
+            <div class="progress-bar">
+              <div class="progress-fill animate-progress"></div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 데스크톱 뷰 -->
-      <div class="hidden lg:block">
-        <div class="max-w-7xl mx-auto px-6 py-5">
-          <div class="flex items-center justify-between">
-            <!-- 좌측: 선택된 강의 정보 -->
-            <div class="flex items-center space-x-8">
-              <div class="flex items-center space-x-4">
-                <div class="relative">
-                  <div class="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full blur-lg opacity-60"></div>
-                  <div class="relative bg-gradient-to-r from-blue-500 to-purple-500 p-3 rounded-full shadow-lg">
-                    <ShoppingCart class="w-6 h-6 text-white" />
-                  </div>
-                </div>
-                <div>
-                  <span class="text-sm text-gray-500 block">선택한 강의</span>
-                  <span class="font-bold text-gray-900 text-xl">
-                    {{ courseStore.selectedCount }}개
-                  </span>
-                </div>
+      <div class="footer-container desktop-view">
+        <div class="desktop-content">
+          <div class="desktop-left">
+            <!-- 선택된 강의 정보 -->
+            <div class="selected-info">
+              <div class="icon-wrapper large">
+                <ShoppingCart class="icon" aria-hidden="true" />
               </div>
+              <div class="text-info">
+                <h2 class="label" id="desktop-selected-courses-label">선택한 강의</h2>
+                <span class="count large" aria-describedby="desktop-selected-courses-label">
+                  <span class="sr-only">총 </span>{{ courseStore.selectedCount }}개
+                </span>
+              </div>
+            </div>
 
-              <!-- 선택된 강의 미리보기 -->
-              <div class="flex items-center space-x-3">
-                <div class="flex -space-x-3">
-                  <transition-group name="avatar">
-                    <div
-                        v-for="(course, index) in selectedCoursesPreview"
-                        :key="course.id"
-                        :title="course.title"
-                        :style="{ zIndex: 3 - index }"
-                        class="relative w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-xs font-bold text-white border-3 border-white shadow-lg hover:scale-110 transition-transform cursor-pointer"
-                    >
-                      {{ course.title.charAt(0) }}
-                    </div>
-                  </transition-group>
+            <!-- 선택된 강의 미리보기 -->
+            <div class="preview-section">
+              <div class="preview-list" role="list" aria-label="선택된 강의 미리보기">
+                <transition-group name="avatar">
                   <div
-                      v-if="courseStore.selectedCount > 3"
-                      class="relative w-10 h-10 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center text-xs font-bold text-white border-3 border-white shadow-lg"
+                      v-for="(course, index) in selectedCoursesPreview"
+                      :key="course.id"
+                      :title="course.title"
+                      :style="{ zIndex: 3 - index }"
+                      class="preview-item"
+                      role="listitem"
+                      :aria-label="`선택된 강의: ${course.title}`"
+                      tabindex="0"
                   >
-                    +{{ courseStore.selectedCount - 3 }}
+                    {{ course.title.charAt(0) }}
                   </div>
-                </div>
-                <button
-                    @click="showDetailModal = true"
-                    class="text-sm font-medium text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center"
+                </transition-group>
+                <div
+                    v-if="courseStore.selectedCount > 3"
+                    class="preview-item more"
+                    role="listitem"
+                    :aria-label="`그 외 ${courseStore.selectedCount - 3}개 강의`"
                 >
-                  <Eye class="w-4 h-4 mr-1 text-blue-600" />
-                  상세보기
-                </button>
+                  +{{ courseStore.selectedCount - 3 }}
+                </div>
               </div>
+              <button
+                  @click="showDetailModal = true"
+                  class="view-all-button"
+                  aria-label="선택한 강의 전체 목록 보기"
+              >
+                <Eye class="view-all-icon" aria-hidden="true" />
+                전체보기
+              </button>
             </div>
+          </div>
 
-            <!-- 우측: 액션 버튼들 -->
-            <div class="flex items-center space-x-4">
-              <button
-                  @click="clearAll"
-                  class="group px-6 py-3 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-2xl transition-all duration-300 hover:shadow-lg flex items-center"
-              >
-                <Trash2 class="w-4 h-4 mr-2 text-gray-400 group-hover:text-gray-600 group-hover:scale-110 transition-all" />
-                전체 취소
-              </button>
-              <button
-                  @click="proceedToEnroll"
-                  :disabled="isProcessing"
-                  class="relative overflow-hidden group px-8 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 rounded-2xl transition-all duration-300 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center transform hover:scale-[1.02]"
-              >
-                <span class="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></span>
-                <Loader2 v-if="isProcessing" class="w-4 h-4 mr-2 animate-spin" />
-                <ShoppingBag v-else class="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-                <span class="relative">{{ isProcessing ? '처리 중...' : '수강 신청하기' }}</span>
-              </button>
-            </div>
+          <!-- 우측: 액션 버튼들 -->
+          <div class="desktop-actions">
+            <button
+                @click="clearAll"
+                class="action-button outline"
+                aria-label="선택한 모든 강의 취소"
+            >
+              전체 취소
+            </button>
+            <button
+                @click="proceedToEnroll"
+                :disabled="isProcessing"
+                class="action-button primary large"
+                :aria-label="isProcessing ? '수강 신청 처리 중' : '선택한 강의 수강 신청하기'"
+                :aria-busy="isProcessing"
+            >
+              <Loader2 v-if="isProcessing" class="button-icon animate-spin" aria-hidden="true" />
+              <ShoppingBag v-else class="button-icon" aria-hidden="true" />
+              <span>{{ isProcessing ? '처리 중...' : '수강 신청하기' }}</span>
+            </button>
           </div>
         </div>
       </div>
 
       <!-- 상세보기 모달 -->
       <Teleport to="body">
-        <transition
-            enter-active-class="transition-all ease-out duration-300"
-            enter-from-class="opacity-0 scale-95"
-            enter-to-class="opacity-100 scale-100"
-            leave-active-class="transition-all ease-in duration-200"
-            leave-from-class="opacity-100 scale-100"
-            leave-to-class="opacity-0 scale-95"
-        >
+        <transition name="modal">
           <div
               v-if="showDetailModal"
               @click="showDetailModal = false"
-              class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              class="modal-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="modal-title"
           >
             <div
                 @click.stop
-                class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden transform transition-all"
+                class="modal-content"
+                role="document"
             >
               <!-- 모달 헤더 -->
-              <div class="p-6 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-purple-50">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center space-x-3">
-                    <div class="bg-gradient-to-r from-blue-500 to-purple-500 p-2 rounded-xl">
-                      <ShoppingCart class="w-5 h-5 text-white" />
-                    </div>
-                    <h3 class="text-xl font-bold text-gray-900">
-                      선택한 강의 목록
-                    </h3>
+              <header class="modal-header">
+                <div class="modal-title-wrapper">
+                  <div class="icon-wrapper modal">
+                    <ShoppingCart class="icon" aria-hidden="true" />
                   </div>
-                  <button
-                      @click="showDetailModal = false"
-                      class="p-2 rounded-xl hover:bg-gray-100 transition-all duration-300 group"
-                  >
-                    <X class="w-5 h-5 text-gray-400 group-hover:text-gray-600 group-hover:rotate-90 transition-all" />
-                  </button>
+                  <h3 class="modal-title" id="modal-title">
+                    선택한 강의 목록
+                  </h3>
                 </div>
-              </div>
+                <button
+                    @click="showDetailModal = false"
+                    class="modal-close-button"
+                    aria-label="모달 닫기"
+                >
+                  <X class="close-icon" aria-hidden="true" />
+                </button>
+              </header>
 
-              <!-- 모달 바디 -->
-              <div class="p-6 overflow-y-auto max-h-[60vh] custom-scrollbar">
-                <div class="space-y-4">
-                  <transition-group name="modal-list">
-                    <div
-                        v-for="(course, index) in selectedCourses"
+              <!-- 모달 본문 -->
+              <div class="modal-body" role="list" aria-label="선택된 강의 상세 목록">
+                <div class="modal-course-list">
+                  <transition-group name="list">
+                    <article
+                        v-for="course in selectedCourses"
                         :key="course.id"
-                        class="group bg-gradient-to-r from-gray-50 to-gray-50/30 hover:from-blue-50 hover:to-purple-50 rounded-2xl p-5 flex items-start justify-between transition-all duration-300 hover:shadow-lg border border-gray-100"
+                        class="modal-course-item"
+                        role="listitem"
                     >
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-start space-x-4">
-                          <span class="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl flex items-center justify-center text-sm font-bold shadow-lg">
-                            {{ index + 1 }}
-                          </span>
-                          <div class="flex-1">
-                            <h4 class="font-semibold text-gray-900 group-hover:text-blue-700 transition-colors">
-                              {{ course.title }}
-                            </h4>
-                            <p class="text-sm text-gray-500 mt-1">
+                      <div class="modal-course-content">
+                        <div class="course-avatar">
+                          {{ course.title.charAt(0) }}
+                        </div>
+                        <div class="modal-course-info">
+                          <h4 class="modal-course-title">{{ course.title }}</h4>
+                          <div class="modal-course-meta">
+                            <span class="category-badge">
                               {{ getCategoryDisplayPath(course) }}
-                            </p>
-                            <div class="flex items-center space-x-4 mt-3 text-xs text-gray-500">
-                              <span class="flex items-center bg-gray-100 px-2 py-1 rounded-lg">
-                                <Clock class="w-3 h-3 mr-1" />
-                                {{ course.duration || '30분' }}
+                            </span>
+                            <div class="meta-details">
+                              <span class="meta-item">
+                                <Clock class="meta-icon" aria-hidden="true" />
+                                <span class="sr-only">소요시간: </span>{{ course.duration || '30분' }}
                               </span>
-                              <span class="flex items-center bg-gray-100 px-2 py-1 rounded-lg">
-                                <BarChart class="w-3 h-3 mr-1" />
-                                {{ getDifficultyText(course.difficulty) }}
+                              <span class="meta-separator" aria-hidden="true">•</span>
+                              <span class="difficulty-badge">
+                                <BarChart class="meta-icon" aria-hidden="true" />
+                                <span class="sr-only">난이도: </span>{{ getDifficultyText(course.difficulty) }}
                               </span>
                             </div>
                           </div>
@@ -268,37 +280,37 @@
                       </div>
                       <button
                           @click="removeFromSelected(course.id)"
-                          class="ml-4 p-2.5 rounded-xl bg-white hover:bg-red-50 transition-all duration-300 hover:shadow-md border border-gray-100 hover:border-red-200 group/delete"
+                          class="modal-remove-button"
+                          :aria-label="`${course.title} 선택 취소`"
                       >
-                        <Trash2 class="w-4 h-4 text-gray-400 group-hover/delete:text-red-500 group-hover/delete:scale-110 transition-all" />
+                        <Trash2 class="remove-icon" aria-hidden="true" />
                       </button>
-                    </div>
+                    </article>
                   </transition-group>
                 </div>
               </div>
 
               <!-- 모달 푸터 -->
-              <div class="p-6 border-t border-gray-100 bg-gradient-to-r from-gray-50 to-gray-50/50">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center space-x-2">
-                    <div class="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
-                    <span class="text-sm font-medium text-gray-600">
-                      총 {{ courseStore.selectedCount }}개 강의가 선택되었습니다
-                    </span>
-                  </div>
-                  <button
-                      @click="showDetailModal = false"
-                      class="px-6 py-2.5 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl transition-all duration-300 hover:shadow-lg"
-                  >
-                    닫기
-                  </button>
+              <footer class="modal-footer">
+                <div class="modal-footer-info">
+                  <div class="footer-dot"></div>
+                  <span class="footer-text">
+                    총 {{ courseStore.selectedCount }}개 강의가 선택되었습니다
+                  </span>
                 </div>
-              </div>
+                <button
+                    @click="showDetailModal = false"
+                    class="modal-footer-button"
+                    aria-label="모달 닫기"
+                >
+                  닫기
+                </button>
+              </footer>
             </div>
           </div>
         </transition>
       </Teleport>
-    </div>
+    </nav>
   </transition>
 </template>
 
@@ -374,6 +386,7 @@ const toggleExpanded = () => {
 // 선택 해제
 const removeFromSelected = (courseId) => {
   courseStore.removeFromSelected(courseId)
+  ElMessage.info('강의 선택이 취소되었습니다.')
 }
 
 // 전체 취소
@@ -471,52 +484,775 @@ const proceedToEnroll = async () => {
 </script>
 
 <style scoped>
-/* 커스텀 스크롤바 */
-.custom-scrollbar::-webkit-scrollbar {
+/* =================== 기본 스타일 =================== */
+.selected-courses-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-xl);
+  z-index: var(--z-fixed);
+  backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+/* 모바일/데스크톱 뷰 토글 */
+.mobile-view {
+  display: block;
+}
+
+.desktop-view {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .mobile-view {
+    display: none;
+  }
+
+  .desktop-view {
+    display: block;
+  }
+}
+
+/* =================== 모바일 뷰 =================== */
+.footer-container {
+  padding: var(--space-5);
+}
+
+.footer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+/* 선택 정보 */
+.selected-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.icon-wrapper {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+
+.icon-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
+  border-radius: var(--radius-lg);
+  opacity: 0.3;
+  filter: blur(8px);
+}
+
+.icon-wrapper.large {
+  width: 56px;
+  height: 56px;
+}
+
+.icon-wrapper.modal {
+  width: 40px;
+  height: 40px;
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  color: white;
+  position: relative;
+  z-index: 1;
+}
+
+.text-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  font-weight: var(--font-medium);
+}
+
+.count {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.count.large {
+  font-size: var(--text-2xl);
+}
+
+/* 토글 버튼 */
+.toggle-button {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggle-button:hover {
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggle-button:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.toggle-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+  transition: all var(--transition-base);
+}
+
+.rotate-180 {
+  transform: rotate(180deg);
+}
+
+/* 확장된 컨텐츠 */
+.expanded-content {
+  margin-bottom: var(--space-4);
+}
+
+.course-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.course-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+}
+
+.course-item:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-primary);
+}
+
+.course-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.course-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1) 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.meta-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+}
+
+.meta-separator {
+  color: var(--text-tertiary);
+}
+
+.remove-button {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: var(--space-3);
+}
+
+.remove-button:hover {
+  background: var(--color-error-light);
+  border-color: var(--color-error);
+}
+
+.remove-button:focus-visible {
+  outline: 3px solid var(--color-error);
+  outline-offset: 2px;
+}
+
+.remove-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.remove-button:hover .remove-icon {
+  color: var(--color-error);
+}
+
+/* 전체 취소 버튼 */
+.clear-all-button {
+  width: 100%;
+  padding: var(--space-3);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--color-error);
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clear-all-button:hover {
+  background: var(--color-error-light);
+}
+
+.clear-all-button:focus-visible {
+  outline: 3px solid var(--color-error);
+  outline-offset: 2px;
+}
+
+/* 액션 버튼 */
+.action-buttons {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.action-button {
+  flex: 1;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  border-radius: var(--radius-lg);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-button:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.action-button.primary {
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
+  color: white;
+}
+
+.action-button.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.action-button.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-primary);
+}
+
+.action-button.secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--accent-primary);
+}
+
+.action-button.outline {
+  background: none;
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.action-button.outline:hover:not(:disabled) {
+  background: var(--color-error-light);
+}
+
+.action-button.large {
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--text-lg);
+}
+
+.button-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* 프로그레스 바 */
+.progress-wrapper {
+  margin-top: var(--space-3);
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--color-gray-200);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary) 0%, #764ba2 100%);
+  border-radius: var(--radius-full);
+}
+
+/* =================== 데스크톱 뷰 =================== */
+.desktop-content {
+  max-width: var(--container-xl);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.desktop-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.preview-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.preview-list {
+  display: flex;
+}
+
+.preview-item {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  box-shadow: var(--shadow-sm);
+  border: 3px solid white;
+  margin-left: -12px;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.preview-item:first-child {
+  margin-left: 0;
+}
+
+.preview-item:hover {
+  transform: scale(1.1);
+  z-index: 10 !important;
+}
+
+.preview-item:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.preview-item.more {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-primary);
+}
+
+.view-all-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--accent-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.view-all-button:hover {
+  background: var(--bg-tertiary);
+}
+
+.view-all-button:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.view-all-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.desktop-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* =================== 모달 =================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 640px;
+  width: 100%;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  padding: var(--space-6);
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+}
+
+.modal-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.modal-title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-close-button {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modal-close-button:hover {
+  background: var(--bg-secondary);
+}
+
+.modal-close-button:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.close-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-tertiary);
+  transition: all var(--transition-fast);
+}
+
+.modal-close-button:hover .close-icon {
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+.modal-body {
+  flex: 1;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.modal-course-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-course-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+}
+
+.modal-course-item:hover {
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--accent-primary);
+}
+
+.modal-course-content {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  flex: 1;
+}
+
+.course-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.modal-course-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-course-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.modal-course-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.category-badge {
+  display: inline-flex;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--color-primary-700);
+  background: var(--color-primary-100);
+  border-radius: var(--radius-base);
+  align-self: flex-start;
+}
+
+.meta-details {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.difficulty-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--color-info-700);
+  background: var(--color-info-100);
+  border-radius: var(--radius-base);
+}
+
+.modal-remove-button {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.modal-remove-button:hover {
+  background: var(--color-error-light);
+  border-color: var(--color-error);
+  box-shadow: var(--shadow-sm);
+}
+
+.modal-remove-button:hover .remove-icon {
+  color: var(--color-error);
+  transform: scale(1.1);
+}
+
+.modal-remove-button:focus-visible {
+  outline: 3px solid var(--color-error);
+  outline-offset: 2px;
+}
+
+.modal-footer {
+  padding: var(--space-6);
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+}
+
+.modal-footer-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.footer-dot {
   width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #764ba2 100%);
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #f3f4f6;
-  border-radius: 10px;
+.footer-text {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: linear-gradient(to bottom, #3b82f6, #8b5cf6);
-  border-radius: 10px;
+.modal-footer-button {
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(to bottom, #2563eb, #7c3aed);
+.modal-footer-button:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.modal-footer-button:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* =================== 애니메이션 =================== */
+/* 확장 애니메이션 */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.3s ease;
+}
+
+.expand-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 /* 리스트 애니메이션 */
 .list-enter-active,
-.list-leave-active,
-.modal-list-enter-active,
-.modal-list-leave-active {
+.list-leave-active {
   transition: all 0.3s ease;
 }
 
-.list-enter-from,
-.modal-list-enter-from {
+.list-enter-from {
   opacity: 0;
   transform: translateX(-30px);
 }
 
-.list-leave-to,
-.modal-list-leave-to {
+.list-leave-to {
   opacity: 0;
   transform: translateX(30px);
 }
 
-.list-move,
-.modal-list-move {
+.list-move {
   transition: transform 0.3s ease;
 }
 
 /* 아바타 애니메이션 */
-.avatar-enter-active {
+.avatar-enter-active,
+.avatar-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -530,51 +1266,117 @@ const proceedToEnroll = async () => {
   transform: scale(0);
 }
 
+/* 모달 애니메이션 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+  transform: scale(0.9);
+}
+
 /* 프로그레스 애니메이션 */
 @keyframes progress {
-  0% {
-    width: 0%;
-  }
-  100% {
-    width: 100%;
-  }
+  0% { width: 0%; }
+  100% { width: 100%; }
 }
 
 .animate-progress {
-  animation: progress 2s ease-in-out infinite;
+  animation: progress 1.5s ease-in-out infinite;
 }
 
-/* 글로벌 스타일 오버라이드 */
-:deep(.modern-message-box) {
-  border-radius: 20px !important;
+/* 스핀 애니메이션 */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* =================== 스크린 리더 전용 =================== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
-:deep(.modern-message-box .el-message-box__header) {
-  background: linear-gradient(to right, #eff6ff, #faf5ff);
-  padding: 20px;
+/* =================== 반응형 디자인 =================== */
+@media (max-width: 640px) {
+  .footer-container {
+    padding: var(--space-4);
+  }
+
+  .icon-wrapper {
+    width: 40px;
+    height: 40px;
+  }
+
+  .icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .count {
+    font-size: var(--text-lg);
+  }
+
+  .action-button {
+    padding: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .button-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .modal-content {
+    max-height: 90vh;
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: var(--space-4);
+  }
 }
 
-:deep(.modern-message-box .el-message-box__title) {
-  font-weight: 700;
-  font-size: 18px;
+/* =================== 접근성 개선 =================== */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-:deep(.modern-message-box .el-message-box__btns button) {
-  border-radius: 12px;
-  padding: 10px 24px;
-  font-weight: 600;
-  transition: all 0.3s;
-}
+/* 고대비 모드 */
+@media (prefers-contrast: high) {
+  .action-button.primary {
+    background: var(--accent-primary);
+  }
 
-:deep(.modern-message-box .el-button--primary) {
-  background: linear-gradient(to right, #3b82f6, #8b5cf6);
-  border: none;
-}
+  .icon-wrapper {
+    background: var(--accent-primary);
+  }
 
-:deep(.modern-message-box .el-button--primary:hover) {
-  background: linear-gradient(to right, #2563eb, #7c3aed);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+  .preview-item {
+    background: var(--accent-primary);
+  }
 }
 </style>
