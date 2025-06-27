@@ -15,6 +15,7 @@ import {
     addDoc
 } from 'firebase/firestore'
 import { db } from './firebase'
+import { FIREBASE_COLLECTIONS, FLASK_SUBCOLLECTIONS } from '@/utils/constants'
 
 class CourseService {
     // 캐시 설정
@@ -63,6 +64,103 @@ class CourseService {
     }
 
     /**
+     * uploads 데이터를 courses 형식으로 변환
+     */
+    static convertUploadToCourse(uploadDoc) {
+        const data = uploadDoc.data()
+
+        return {
+            id: uploadDoc.id,
+            // 기본 정보
+            title: data.group_name || '제목 없음',
+            description: data.content_description || '',
+
+            // 카테고리 정보
+            category: {
+                main: data.main_category || '',
+                middle: data.sub_category || '',
+                leaf: data.sub_sub_category || ''
+            },
+
+            // 미디어 정보
+            videoUrl: data.video_url || '',
+            thumbnailUrl: data.thumbnail_url || '',
+            qrUrl: data.qr_url || '',
+
+            // 학습 정보
+            duration: data.duration_string || '30분',
+            difficulty: 'intermediate', // 기본값
+
+            // 메타데이터
+            uploadedAt: data.upload_date || new Date(),
+            createdAt: data.createdAt || data.upload_date || new Date(),
+            updatedAt: data.updatedAt || new Date(),
+
+            // 통계 정보 (초기값)
+            enrolledCount: 0,
+            completedCount: 0,
+            rating: 0,
+            reviewCount: 0,
+
+            // 기타 정보
+            languageVideos: data.language_videos || {},
+            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
+            availableLanguages: Object.keys(data.language_videos || {}),
+
+            // Railway 프록시 정보
+            railwayProxyEnabled: data.railway_proxy_enabled || true,
+            originalS3Key: data.s3_key || '',
+
+            // 태그 (카테고리 기반 자동 생성)
+            tags: [data.main_category, data.sub_category, data.sub_sub_category].filter(Boolean)
+        }
+    }
+
+    /**
+     * Firebase uploads 컬렉션에서 전체 강의 목록 가져오기
+     */
+    static async getCoursesFromUploads() {
+        try {
+            console.log('🔄 Firebase uploads에서 강의 로드 시작...')
+
+            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
+            const q = query(uploadsRef, orderBy('upload_date', 'desc'))
+            const snapshot = await getDocs(q)
+
+            const courses = []
+
+            for (const doc of snapshot.docs) {
+                const course = this.convertUploadToCourse(doc)
+
+                // language_videos 서브컬렉션 로드
+                try {
+                    const langVideosRef = collection(doc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
+                    const langVideosSnapshot = await getDocs(langVideosRef)
+
+                    const languageVideos = {}
+                    langVideosSnapshot.forEach(langDoc => {
+                        languageVideos[langDoc.id] = langDoc.data()
+                    })
+
+                    course.languageVideos = languageVideos
+                    course.availableLanguages = Object.keys(languageVideos)
+                    course.hasMultipleLanguages = course.availableLanguages.length > 1
+                } catch (error) {
+                    console.warn(`언어별 비디오 로드 실패 (${doc.id}):`, error)
+                }
+
+                courses.push(course)
+            }
+
+            console.log(`✅ uploads에서 ${courses.length}개 강의 로드 완료`)
+            return courses
+        } catch (error) {
+            console.error('uploads 강의 목록 조회 오류:', error)
+            throw error
+        }
+    }
+
+    /**
      * Firestore에서 전체 강의 목록 가져오기 (캐싱 적용)
      */
     static async getCoursesFromFirestore() {
@@ -73,26 +171,12 @@ class CourseService {
                 return { courses: cachedCourses, fromCache: true }
             }
 
-            // 2. Firestore에서 로드
-            console.log('🔄 Firestore에서 강의 로드 시작...')
-            const coursesRef = collection(db, 'courses')
-            const q = query(coursesRef, orderBy('createdAt', 'desc'))
-            const snapshot = await getDocs(q)
-
-            const courses = []
-            snapshot.forEach(doc => {
-                courses.push({
-                    id: doc.id,
-                    ...doc.data(),
-                    createdAt: doc.data().createdAt?.toDate() || new Date(),
-                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
-                })
-            })
+            // 2. uploads 컬렉션에서 데이터 로드
+            const courses = await this.getCoursesFromUploads()
 
             // 3. 캐시에 저장
             this.setCachedCourses(courses)
 
-            console.log(`✅ Firestore에서 ${courses.length}개 강의 로드 완료`)
             return { courses, fromCache: false }
         } catch (error) {
             console.error('Firestore 강의 목록 조회 오류:', error)
@@ -112,20 +196,20 @@ class CourseService {
     static async getCoursesWithPagination(lastDoc = null, pageSize = this.PAGE_SIZE) {
         try {
             console.log('📄 페이지 로드 시작...')
-            const coursesRef = collection(db, 'courses')
+            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
 
             let q
             if (lastDoc) {
                 q = query(
-                    coursesRef,
-                    orderBy('createdAt', 'desc'),
+                    uploadsRef,
+                    orderBy('upload_date', 'desc'),
                     startAfter(lastDoc),
                     limit(pageSize)
                 )
             } else {
                 q = query(
-                    coursesRef,
-                    orderBy('createdAt', 'desc'),
+                    uploadsRef,
+                    orderBy('upload_date', 'desc'),
                     limit(pageSize)
                 )
             }
@@ -135,15 +219,10 @@ class CourseService {
             const courses = []
             let lastDocument = null
 
-            snapshot.forEach(doc => {
-                courses.push({
-                    id: doc.id,
-                    ...doc.data(),
-                    createdAt: doc.data().createdAt?.toDate() || new Date(),
-                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
-                })
+            for (const doc of snapshot.docs) {
+                courses.push(this.convertUploadToCourse(doc))
                 lastDocument = doc
-            })
+            }
 
             console.log(`✅ ${courses.length}개 강의 로드`)
 
@@ -176,24 +255,19 @@ class CourseService {
             }
 
             // Firestore 조회
-            const coursesRef = collection(db, 'courses')
+            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
             const q = query(
-                coursesRef,
-                where('category.leaf', '==', category),
-                orderBy('createdAt', 'desc'),
-                limit(50) // 카테고리별 최대 50개
+                uploadsRef,
+                where('sub_sub_category', '==', category),
+                orderBy('upload_date', 'desc'),
+                limit(50)
             )
 
             const snapshot = await getDocs(q)
             const courses = []
 
             snapshot.forEach(doc => {
-                courses.push({
-                    id: doc.id,
-                    ...doc.data(),
-                    createdAt: doc.data().createdAt?.toDate() || new Date(),
-                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
-                })
+                courses.push(this.convertUploadToCourse(doc))
             })
 
             // 캐시 저장
@@ -227,14 +301,25 @@ class CourseService {
             }
 
             // Firestore 조회
-            const courseDoc = await getDoc(doc(db, 'courses', courseId))
+            const courseDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId))
 
             if (courseDoc.exists()) {
-                const course = {
-                    id: courseDoc.id,
-                    ...courseDoc.data(),
-                    createdAt: courseDoc.data().createdAt?.toDate() || new Date(),
-                    updatedAt: courseDoc.data().updatedAt?.toDate() || new Date()
+                const course = this.convertUploadToCourse(courseDoc)
+
+                // language_videos 서브컬렉션 로드
+                try {
+                    const langVideosRef = collection(courseDoc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
+                    const langVideosSnapshot = await getDocs(langVideosRef)
+
+                    const languageVideos = {}
+                    langVideosSnapshot.forEach(langDoc => {
+                        languageVideos[langDoc.id] = langDoc.data()
+                    })
+
+                    course.languageVideos = languageVideos
+                    course.availableLanguages = Object.keys(languageVideos)
+                } catch (error) {
+                    console.warn('언어별 비디오 로드 실패:', error)
                 }
 
                 // 캐시 저장
@@ -277,7 +362,7 @@ class CourseService {
     static async getUserEnrollments(userId) {
         try {
             const enrollmentsQuery = query(
-                collection(db, 'enrollments'),
+                collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS),
                 where('userId', '==', userId),
                 orderBy('enrolledAt', 'desc')
             )
@@ -315,7 +400,7 @@ class CourseService {
             const enrollmentId = `${userId}_${courseId}`
 
             // 이미 신청했는지 확인
-            const existingEnrollment = await getDoc(doc(db, 'enrollments', enrollmentId))
+            const existingEnrollment = await getDoc(doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId))
             if (existingEnrollment.exists()) {
                 return {
                     success: false,
@@ -335,7 +420,7 @@ class CourseService {
                 ...(isQRAccess && { qrAccessedAt: serverTimestamp() })
             }
 
-            await setDoc(doc(db, 'enrollments', enrollmentId), enrollmentData)
+            await setDoc(doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId), enrollmentData)
 
             // 관련 캐시 초기화
             this.clearCache()
@@ -382,7 +467,7 @@ class CourseService {
                 updateData.progress = 100
             }
 
-            await updateDoc(doc(db, 'enrollments', enrollmentId), updateData)
+            await updateDoc(doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId), updateData)
 
             return {
                 success: true,
@@ -399,21 +484,22 @@ class CourseService {
     }
 
     /**
-     * 비디오 URL 가져오기 (Firebase Storage URL)
+     * 비디오 URL 가져오기 (언어별)
      */
-    static async getVideoUrl(videoId, language = 'ko') {
+    static async getVideoUrl(courseId, language = 'ko') {
         try {
-            const courseDoc = await getDoc(doc(db, 'courses', videoId))
+            const course = await this.getCourseById(courseId)
 
-            if (courseDoc.exists()) {
-                const courseData = courseDoc.data()
-                const videoUrl = courseData.videoUrls?.[language] || courseData.videoUrl || ''
+            if (course && course.languageVideos) {
+                const langVideo = course.languageVideos[language] || course.languageVideos['ko']
+                const videoUrl = langVideo?.video_url || course.videoUrl || ''
 
                 return {
                     videoUrl,
                     metadata: {
                         language,
-                        duration: courseData.duration || '30:00'
+                        duration: langVideo?.duration_string || course.duration || '30:00',
+                        fileSize: langVideo?.file_size || 0
                     }
                 }
             }
@@ -428,13 +514,12 @@ class CourseService {
     /**
      * 사용 가능한 언어 목록
      */
-    static async getAvailableLanguages(videoId) {
+    static async getAvailableLanguages(courseId) {
         try {
-            const courseDoc = await getDoc(doc(db, 'courses', videoId))
+            const course = await this.getCourseById(courseId)
 
-            if (courseDoc.exists()) {
-                const courseData = courseDoc.data()
-                const languages = courseData.availableLanguages || ['ko']
+            if (course && course.availableLanguages) {
+                const languages = course.availableLanguages
 
                 const details = {}
                 languages.forEach(lang => {
@@ -462,63 +547,32 @@ class CourseService {
             ko: '한국어',
             en: 'English',
             zh: '中文',
-            vi: 'Tiếng Việt'
+            vi: 'Tiếng Việt',
+            th: 'ภาษาไทย',
+            ja: '日本語'
         }
         return languageNames[langCode] || langCode
     }
 
     /**
-     * 새 강의 추가 (관리자용)
+     * QR 코드 접근 로그 기록
      */
-    static async createCourse(courseData) {
+    static async logQRAccess(courseId, userId = null) {
         try {
-            const docRef = await addDoc(collection(db, 'courses'), {
-                ...courseData,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-                enrolledCount: 0,
-                rating: 0,
-                reviewCount: 0
-            })
-
-            // 캐시 초기화
-            this.clearCache()
-
-            return {
-                success: true,
-                courseId: docRef.id
+            const logData = {
+                courseId,
+                userId: userId || 'anonymous',
+                accessedAt: serverTimestamp(),
+                userAgent: navigator.userAgent,
+                platform: navigator.platform
             }
+
+            await addDoc(collection(db, FIREBASE_COLLECTIONS.QR_ACCESS_LOGS), logData)
+
+            return { success: true }
         } catch (error) {
-            console.error('강의 생성 오류:', error)
-            return {
-                success: false,
-                error: error.message
-            }
-        }
-    }
-
-    /**
-     * 강의 정보 업데이트 (관리자용)
-     */
-    static async updateCourse(courseId, updateData) {
-        try {
-            await updateDoc(doc(db, 'courses', courseId), {
-                ...updateData,
-                updatedAt: serverTimestamp()
-            })
-
-            // 캐시 초기화
-            this.clearCache()
-
-            return {
-                success: true
-            }
-        } catch (error) {
-            console.error('강의 업데이트 오류:', error)
-            return {
-                success: false,
-                error: error.message
-            }
+            console.error('QR 접근 로그 기록 오류:', error)
+            return { success: false }
         }
     }
 }

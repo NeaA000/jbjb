@@ -117,6 +117,15 @@ const router = createRouter({
             }
         },
         {
+            path: '/profile/settings',
+            name: 'profile-settings',
+            component: () => import('@/views/profile/ProfileSettings.vue'),
+            meta: {
+                requiresAuth: true,
+                title: '프로필 설정'
+            }
+        },
+        {
             path: '/qr-scan',
             name: 'qr-scan',
             component: () => import('@/views/qr/QRScanView.vue'),
@@ -167,7 +176,7 @@ router.beforeEach(async (to, from) => {
         // 게스트인 경우
         if (isGuest) {
             // 특정 페이지는 게스트 안내 메시지 표시
-            const guestRestrictedPages = ['certificates', 'certificate-detail', 'my-courses']
+            const guestRestrictedPages = ['certificates', 'certificate-detail', 'my-courses', 'profile', 'profile-settings']
             if (guestRestrictedPages.includes(to.name)) {
                 alert('이 기능은 회원만 이용할 수 있습니다.\n회원가입 후 이용해주세요.')
                 return {

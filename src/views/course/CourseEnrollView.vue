@@ -99,27 +99,37 @@
               class="space-y-4"
           >
             <div
-                v-for="(course, index) in selectedCourses"
+                v-for="course in selectedCourses"
                 :key="course.id"
-                class="bg-white rounded-lg shadow-sm overflow-hidden"
+                class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
             >
               <div class="p-6">
                 <div class="flex items-start space-x-4">
-                  <!-- 순번 -->
-                  <div class="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-600
-                              rounded-full flex items-center justify-center
-                              font-medium text-sm">
-                    {{ index + 1 }}
+                  <!-- 썸네일 -->
+                  <div class="flex-shrink-0">
+                    <img
+                        v-if="course.thumbnailUrl"
+                        :src="course.thumbnailUrl"
+                        :alt="course.title"
+                        class="w-32 h-24 object-cover rounded-lg"
+                    >
+                    <div
+                        v-else
+                        class="w-32 h-24 bg-gradient-to-br from-blue-400 to-purple-500
+                             rounded-lg flex items-center justify-center"
+                    >
+                      <BookOpen class="w-8 h-8 text-white" />
+                    </div>
                   </div>
 
                   <!-- 강의 정보 -->
                   <div class="flex-1 min-w-0">
-                    <h3 class="text-lg font-medium text-gray-900 mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-1">
                       {{ course.title }}
                     </h3>
 
-                    <!-- 카테고리 표시 -->
-                    <div class="flex items-center space-x-2 mb-3">
+                    <!-- 카테고리 -->
+                    <div class="mb-2">
                       <span
                           :class="getCategoryStyle(course.category?.leaf || '기타')"
                           class="inline-flex items-center px-2.5 py-0.5 rounded-full
@@ -129,12 +139,8 @@
                       </span>
                     </div>
 
-                    <!-- 강의 메타 정보 -->
-                    <div class="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-                      <span class="flex items-center">
-                        <User class="w-4 h-4 mr-1" />
-                        {{ course.instructor || '전문 강사' }}
-                      </span>
+                    <!-- 메타 정보 -->
+                    <div class="flex items-center space-x-4 text-sm text-gray-500">
                       <span class="flex items-center">
                         <Clock class="w-4 h-4 mr-1" />
                         {{ course.duration || '30분' }}
@@ -146,6 +152,10 @@
                       <span v-if="course.rating" class="flex items-center">
                         <Star class="w-4 h-4 mr-1 text-yellow-400 fill-current" />
                         {{ course.rating.toFixed(1) }}
+                      </span>
+                      <span v-if="course.hasMultipleLanguages" class="flex items-center">
+                        <Globe class="w-4 h-4 mr-1" />
+                        {{ course.availableLanguages.length }}개 언어
                       </span>
                     </div>
 
@@ -180,6 +190,19 @@
                     </span>
                   </div>
                 </div>
+
+                <!-- 이미 완료한 강의 경고 -->
+                <div
+                    v-else-if="getEnrollmentStatus(course.id) === 'completed'"
+                    class="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg"
+                >
+                  <div class="flex items-center space-x-2 text-green-800">
+                    <CheckCircle class="w-4 h-4 flex-shrink-0" />
+                    <span class="text-sm">
+                      이미 완료한 강의입니다.
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </TransitionGroup>
@@ -192,26 +215,25 @@
               <p class="text-gray-600 mb-1">
                 총 {{ selectedCourses.length }}개 강의를 신청하시겠습니까?
               </p>
-              <p v-if="authStore.isGuest" class="text-sm text-amber-600">
-                <AlertCircle class="w-4 h-4 inline mr-1" />
-                게스트는 수료증을 받을 수 없습니다
+              <p class="text-sm text-gray-500">
+                신청 후 바로 학습을 시작할 수 있습니다.
               </p>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <div class="flex space-x-3">
               <button
                   @click="clearAll"
-                  class="px-6 py-3 text-gray-700 bg-gray-100 font-medium
-                       rounded-lg hover:bg-gray-200 transition-colors"
+                  class="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg
+                       hover:bg-gray-200 transition-colors"
               >
                 전체 취소
               </button>
               <button
-                  @click="proceedToEnroll"
+                  @click="enrollAll"
                   :disabled="isProcessing"
                   class="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg
-                       hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                       transition-colors inline-flex items-center justify-center"
+                       hover:bg-blue-700 transition-colors disabled:opacity-50
+                       disabled:cursor-not-allowed inline-flex items-center"
               >
                 <Loader2 v-if="isProcessing" class="w-5 h-5 mr-2 animate-spin" />
                 <span>{{ isProcessing ? '처리 중...' : '수강 신청하기' }}</span>
@@ -221,6 +243,76 @@
         </div>
       </div>
     </div>
+
+    <!-- 신청 결과 모달 -->
+    <Transition
+        enter-active-class="transition ease-out duration-300"
+        enter-from-class="opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition ease-in duration-200"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
+    >
+      <div
+          v-if="showResultModal"
+          class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          @click.self="closeResultModal"
+      >
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div class="text-center">
+            <!-- 성공 아이콘 -->
+            <div
+                v-if="enrollmentResult.success"
+                class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4"
+            >
+              <CheckCircle class="h-6 w-6 text-green-600" />
+            </div>
+            <!-- 부분 성공 아이콘 -->
+            <div
+                v-else-if="enrollmentResult.enrolledCount > 0"
+                class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100 mb-4"
+            >
+              <AlertCircle class="h-6 w-6 text-amber-600" />
+            </div>
+            <!-- 실패 아이콘 -->
+            <div
+                v-else
+                class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4"
+            >
+              <X class="h-6 w-6 text-red-600" />
+            </div>
+
+            <!-- 제목 -->
+            <h3 class="text-lg font-medium text-gray-900 mb-2">
+              {{ getResultTitle() }}
+            </h3>
+
+            <!-- 내용 -->
+            <p class="text-sm text-gray-600 mb-6">
+              {{ enrollmentResult.message }}
+            </p>
+
+            <!-- 버튼 -->
+            <div class="flex space-x-3">
+              <button
+                  @click="goToMyCourses"
+                  class="flex-1 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg
+                       hover:bg-blue-700 transition-colors"
+              >
+                내 강의실 가기
+              </button>
+              <button
+                  @click="closeResultModal"
+                  class="flex-1 px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg
+                       hover:bg-gray-200 transition-colors"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -238,11 +330,12 @@ import {
   Clock,
   BarChart,
   Award,
-  User,
   Star,
   X,
   AlertCircle,
-  Loader2
+  CheckCircle,
+  Loader2,
+  Globe
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -251,6 +344,13 @@ const authStore = useAuthStore()
 
 // 상태
 const isProcessing = ref(false)
+const showResultModal = ref(false)
+const enrollmentResult = ref({
+  success: false,
+  enrolledCount: 0,
+  failedCount: 0,
+  message: ''
+})
 
 // 선택된 강의 목록
 const selectedCourses = computed(() => {
@@ -350,95 +450,88 @@ const clearAll = async () => {
         '선택한 모든 강의를 취소하시겠습니까?',
         '전체 취소',
         {
-          confirmButtonText: '취소하기',
-          cancelButtonText: '돌아가기',
+          confirmButtonText: '확인',
+          cancelButtonText: '취소',
           type: 'warning'
         }
     )
 
     courseStore.clearSelected()
-    ElMessage.info('모든 강의 선택이 취소되었습니다.')
-    router.push('/courses')
+    ElMessage.success('모든 강의가 선택 해제되었습니다.')
   } catch {
-    // 사용자가 취소한 경우
+    // 취소됨
   }
 }
 
-// 수강 신청 진행
-const proceedToEnroll = async () => {
+// 전체 신청
+const enrollAll = async () => {
+  // 로그인 확인
+  if (!authStore.isLoggedIn) {
+    ElMessage.warning('로그인이 필요합니다.')
+    router.push('/login')
+    return
+  }
+
   try {
     isProcessing.value = true
-
-    // 게스트 체크
-    if (authStore.isGuest) {
-      const result = await ElMessageBox.confirm(
-          '게스트는 수료증을 받을 수 없습니다. 회원가입하시겠습니까?',
-          '회원가입 안내',
-          {
-            confirmButtonText: '회원가입',
-            cancelButtonText: '게스트로 계속',
-            type: 'warning'
-          }
-      )
-
-      if (result === 'confirm') {
-        router.push('/register?upgrade=true')
-        return
-      }
-    }
 
     // 일괄 신청 처리
     const result = await courseStore.enrollSelectedCourses()
 
-    if (result.enrolledCount > 0) {
-      await ElMessage.success({
-        message: `${result.enrolledCount}개 강의 신청이 완료되었습니다!`,
-        duration: 2000
-      })
+    // 결과 저장
+    enrollmentResult.value = result
 
-      // 첫 번째 강의로 이동
-      setTimeout(() => {
-        const firstCourse = selectedCourses.value[0]
-        if (firstCourse) {
-          // 게스트는 바로 학습, 일반 사용자는 안전 경고 화면으로
-          if (authStore.isGuest) {
-            router.push(`/learning/${firstCourse.id}`)
-          } else {
-            router.push(`/video-warning/${firstCourse.id}`)
-          }
-        } else {
-          // 내 강의실로 이동
-          router.push('/my-courses')
-        }
-      }, 1000)
-    }
+    // 모달 표시
+    showResultModal.value = true
 
-    if (result.failedCount > 0) {
-      ElMessage.warning(`${result.failedCount}개 강의 신청에 실패했습니다.`)
-    }
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('강의 신청 오류:', error)
-      ElMessage.error('강의 신청 중 오류가 발생했습니다.')
-    }
+    ElMessage.error('수강 신청 중 오류가 발생했습니다.')
+    console.error('수강 신청 오류:', error)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 마운트 시 로컬 스토리지에서 선택 항목 로드
-onMounted(() => {
-  courseStore.loadSelectedFromStorage()
+// 결과 제목
+const getResultTitle = () => {
+  if (enrollmentResult.value.success) {
+    if (enrollmentResult.value.failedCount === 0) {
+      return '수강 신청 완료!'
+    } else {
+      return '일부 강의 신청 완료'
+    }
+  }
+  return '수강 신청 실패'
+}
 
+// 결과 모달 닫기
+const closeResultModal = () => {
+  showResultModal.value = false
+}
+
+// 내 강의실로 이동
+const goToMyCourses = () => {
+  showResultModal.value = false
+  router.push('/my-courses')
+}
+
+// 마운트
+onMounted(async () => {
   // 강의 데이터가 없으면 로드
   if (courseStore.courses.length === 0) {
-    courseStore.loadCoursesFromFlask()
+    await courseStore.loadCoursesFromFirestore()
+  }
+
+  // 사용자 수강 정보 로드
+  if (authStore.isLoggedIn) {
+    await courseStore.loadUserEnrollments()
   }
 })
 </script>
 
 <style scoped>
 /* 리스트 애니메이션 */
+.course-list-move,
 .course-list-enter-active,
 .course-list-leave-active {
   transition: all 0.3s ease;
@@ -446,16 +539,17 @@ onMounted(() => {
 
 .course-list-enter-from {
   opacity: 0;
-  transform: translateX(-20px);
+  transform: translateX(-30px);
 }
 
 .course-list-leave-to {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(30px);
 }
 
-.course-list-move {
-  transition: transform 0.3s ease;
+.course-list-leave-active {
+  position: absolute;
+  width: 100%;
 }
 
 /* 라인 클램프 */

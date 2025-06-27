@@ -51,6 +51,18 @@ export const useCourseStore = defineStore('course', () => {
             lastLoadTime.value = Date.now()
 
             console.log('✅ 강의 목록 로드 성공:', courses.value.length)
+
+            // 로드된 강의 정보 샘플 출력 (디버깅용)
+            if (courses.value.length > 0) {
+                console.log('첫 번째 강의 정보:', {
+                    id: courses.value[0].id,
+                    title: courses.value[0].title,
+                    category: courses.value[0].category,
+                    hasVideo: !!courses.value[0].videoUrl,
+                    languages: courses.value[0].availableLanguages
+                })
+            }
+
             return courses.value
         } catch (err) {
             console.error('❌ 강의 목록 로드 실패:', err)
@@ -327,6 +339,7 @@ export const useCourseStore = defineStore('course', () => {
             isLoading.value = true
             let enrolledCount = 0
             let failedCount = 0
+            const enrollmentResults = []
 
             // 선택된 강의들을 순차적으로 신청
             for (const courseId of [...selectedCourseIds.value]) {
@@ -334,8 +347,18 @@ export const useCourseStore = defineStore('course', () => {
 
                 if (result.success) {
                     enrolledCount++
+                    enrollmentResults.push({
+                        courseId,
+                        success: true,
+                        message: result.message
+                    })
                 } else {
                     failedCount++
+                    enrollmentResults.push({
+                        courseId,
+                        success: false,
+                        message: result.message
+                    })
                     console.error(`강의 ${courseId} 신청 실패:`, result.message)
                 }
             }
@@ -349,10 +372,19 @@ export const useCourseStore = defineStore('course', () => {
             // 캐시 초기화
             clearCache()
 
+            // 상세 결과 로그
+            console.log('📋 일괄 신청 결과:', {
+                total: enrollmentResults.length,
+                success: enrolledCount,
+                failed: failedCount,
+                details: enrollmentResults
+            })
+
             return {
                 success: enrolledCount > 0,
                 enrolledCount,
-                failedCount
+                failedCount,
+                message: `${enrolledCount}개 강의 신청 완료${failedCount > 0 ? `, ${failedCount}개 실패` : ''}`
             }
         } catch (err) {
             console.error('❌ 일괄 수강 신청 실패:', err)
@@ -368,14 +400,14 @@ export const useCourseStore = defineStore('course', () => {
     }
 
     // 진도 업데이트
-    const updateProgress = async (courseId, progress) => {
+    const updateProgress = async (courseId, progress, currentTime = 0) => {
         try {
             const authStore = useAuthStore()
             const userId = authStore.userId
 
             if (!userId) return false
 
-            const result = await CourseService.updateProgress(courseId, userId, progress)
+            const result = await CourseService.updateProgress(courseId, userId, progress, currentTime)
 
             if (result.success) {
                 // 로컬 상태 업데이트
@@ -393,6 +425,50 @@ export const useCourseStore = defineStore('course', () => {
         } catch (err) {
             console.error('❌ 진도 업데이트 실패:', err)
             return false
+        }
+    }
+
+    // QR 코드로 강의 접근
+    const accessCourseByQR = async (courseId) => {
+        try {
+            const authStore = useAuthStore()
+            const userId = authStore.userId
+
+            // QR 접근 로그 기록
+            await CourseService.logQRAccess(courseId, userId)
+
+            // 로그인하지 않은 경우 바로 강의 페이지로
+            if (!userId) {
+                return {
+                    success: true,
+                    requiresAuth: false,
+                    courseId
+                }
+            }
+
+            // 로그인한 경우 자동 신청
+            const enrollmentStatus = getEnrollmentStatus(courseId)
+
+            if (enrollmentStatus === 'not-enrolled') {
+                // 자동 신청
+                const result = await CourseService.enrollCourse(courseId, userId, true)
+                if (result.success) {
+                    await loadUserEnrollments()
+                }
+            }
+
+            return {
+                success: true,
+                requiresAuth: true,
+                courseId,
+                enrolled: true
+            }
+        } catch (err) {
+            console.error('❌ QR 강의 접근 실패:', err)
+            return {
+                success: false,
+                message: 'QR 코드 처리 중 오류가 발생했습니다.'
+            }
         }
     }
 
@@ -428,6 +504,7 @@ export const useCourseStore = defineStore('course', () => {
         loadSelectedFromStorage,
         enrollCourse,
         enrollSelectedCourses,
-        updateProgress
+        updateProgress,
+        accessCourseByQR
     }
 })
