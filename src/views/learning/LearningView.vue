@@ -201,7 +201,7 @@ const updateVideoUrl = () => {
   if (!course.value) return
 
   // CourseService의 getVideoUrlForLanguage 메서드 사용
-  const url = CourseService.getVideoUrlForLanguage(course.value, currentLanguage.value)
+  const url = CourseService.getVideoUrlForLanguage(course.value.id, currentLanguage.value)
   videoUrl.value = url
 
   console.log(`🎬 비디오 URL 업데이트:`, {

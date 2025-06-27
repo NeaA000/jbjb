@@ -62,40 +62,81 @@ class CourseService {
         })
     }
 
+
     /**
-     * uploads 데이터를 courses 형식으로 변환 (최적화)
+     * uploads 데이터를 courses 형식으로 변환 (올바른 데이터 구조 + hasVideo 필드 추가)
      */
     static convertUploadToCourse(uploadDoc) {
         const data = uploadDoc.data()
 
-        // 필수 필드만 추출 (불필요한 데이터 제외)
+        // 원본 데이터 로깅 (디버깅용)
+        console.log('📄 원본 uploads 데이터:', {
+            id: uploadDoc.id,
+            group_name: data.group_name,
+            video_url: data.video_url,
+            videoUrl: data.videoUrl,
+            hasVideo: data.hasVideo,
+            data_keys: Object.keys(data).slice(0, 10) // 처음 10개 키만
+        })
+
+        // 비디오 URL 체크 - 여러 필드명 지원
         const videoUrl = data.video_url || data.videoUrl || data.video_link || ''
         const hasVideo = !!videoUrl && videoUrl.trim() !== ''
 
+        // Railway 프록시 URL 생성 (비디오 URL이 없을 때 폴백)
         const baseUrl = import.meta.env.VITE_API_URL || ''
-        const fallbackVideoUrl = hasVideo ?
-            videoUrl :
-            `${baseUrl}/watch/${uploadDoc.id}?lang=ko`
+        const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
 
         return {
             id: uploadDoc.id,
+            // 기본 정보 (올바른 필드명 사용)
             title: data.group_name || data.title || '제목 없음',
-            description: data.description || '',
-            instructor: data.teacher_name || data.instructor || '강사 미정',
-            duration: data.running_time || data.duration || 0,
-            difficulty: data.level || data.difficulty || 'beginner',
-            category: data.category || {},
-            thumbnailUrl: data.thumbnail_url || data.thumbnail || '/placeholder-course.jpg',
+            description: data.content_description || data.description || '',
+
+            // 카테고리 정보
+            category: {
+                main: data.main_category || '',
+                middle: data.sub_category || '',
+                leaf: data.sub_sub_category || ''
+            },
+
+            // 미디어 정보 (hasVideo 필드 추가)
             videoUrl: fallbackVideoUrl,
-            hasVideo: hasVideo,
-            createdAt: data.upload_date || data.createdAt || new Date(),
-            // 최적화: 필요한 필드만 포함
-            language: data.language || 'ko',
-            enrollmentCount: data.enrollmentCount || 0,
+            hasVideo: hasVideo, // hasVideo 필드 명시적 추가
+            thumbnailUrl: data.thumbnail_url || data.thumbnailUrl || '/default-thumbnail.jpg',
+            qrUrl: data.qr_url || data.qrUrl || '',
+
+            // 학습 정보
+            duration: data.duration_string || data.duration || '30분',
+            difficulty: data.difficulty || 'intermediate',
+
+            // 메타데이터
+            uploadedAt: data.upload_date || new Date(),
+            createdAt: data.createdAt || data.upload_date || new Date(),
+            updatedAt: data.updatedAt || new Date(),
+
+            // 통계 정보
+            enrolledCount: data.enrolled_count || data.enrolledCount || 0,
+            completedCount: data.completed_count || data.completedCount || 0,
+            completionRate: data.completion_rate || 0,
             rating: data.rating || 0,
-            // 초기에는 언어별 비디오를 로드하지 않음
-            availableLanguages: [],
-            hasMultipleLanguages: false
+            reviewCount: data.review_count || data.reviewCount || 0,
+
+            // 언어 정보
+            languageVideos: data.language_videos || {},
+            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
+            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
+            hasLanguageVideos: false, // 나중에 로드
+
+            // Railway 프록시 정보
+            railwayProxyEnabled: data.railway_proxy_enabled !== false,
+            originalS3Key: data.s3_key || '',
+
+            // 태그 (카테고리 기반 자동 생성)
+            tags: [data.main_category, data.sub_category, data.sub_sub_category].filter(Boolean),
+
+            // 원본 데이터 참조 (디버깅용)
+            _originalData: data
         }
     }
 
