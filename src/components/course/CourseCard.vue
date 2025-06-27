@@ -1,22 +1,22 @@
 <!-- components/course/CourseCard.vue -->
 <template>
   <el-card
-    :class="['course-card', { 'selected': isSelected, 'has-progress': hasProgress }]"
-    shadow="hover"
-    @click="handleCardClick"
+      :class="['course-card', { 'selected': isSelected, 'has-progress': hasProgress }]"
+      shadow="hover"
+      @click="handleCardClick"
   >
     <!-- 썸네일 영역 -->
     <div class="course-thumbnail">
       <div class="thumbnail-container">
         <img
-          v-if="course.thumbnail"
-          :src="course.thumbnail"
-          :alt="course.title"
-          class="thumbnail-image"
-          @error="onImageError"
+            v-if="course.thumbnail"
+            :src="course.thumbnail"
+            :alt="course.title"
+            class="thumbnail-image"
+            @error="onImageError"
         />
         <div v-else class="thumbnail-placeholder">
-          <el-icon size="40" color="#a0cfff">
+          <el-icon size="40" color="var(--text-tertiary)">
             <VideoPlay />
           </el-icon>
         </div>
@@ -24,36 +24,36 @@
         <!-- 선택 체크박스 (선택 모드일 때) -->
         <div v-if="selectable" class="selection-overlay">
           <el-checkbox
-            :model-value="isSelected"
-            @change="handleSelection"
-            @click.stop
-            size="large"
+              :model-value="isSelected"
+              @change="handleSelection"
+              @click.stop
+              size="large"
           />
         </div>
 
         <!-- 강의 상태 배지 -->
         <div class="status-badges">
           <el-tag
-            v-if="isNewCourse"
-            type="success"
-            size="small"
-            class="status-badge"
+              v-if="isNewCourse"
+              type="success"
+              size="small"
+              class="status-badge"
           >
             NEW
           </el-tag>
           <el-tag
-            v-if="course.flaskData?.railwayOptimized"
-            type="warning"
-            size="small"
-            class="status-badge"
+              v-if="course.flaskData?.railwayOptimized"
+              type="warning"
+              size="small"
+              class="status-badge"
           >
             최적화
           </el-tag>
           <el-tag
-            v-if="course.qrCode"
-            type="info"
-            size="small"
-            class="status-badge"
+              v-if="course.qrCode"
+              type="info"
+              size="small"
+              class="status-badge"
           >
             QR
           </el-tag>
@@ -74,9 +74,9 @@
       <!-- 카테고리 태그 -->
       <div class="course-category">
         <el-tag
-          :type="getCategoryType(course.category?.main)"
-          size="small"
-          effect="light"
+            :type="getCategoryType(course.category?.main)"
+            size="small"
+            effect="light"
         >
           {{ getCategoryDisplayText(course.category) }}
         </el-tag>
@@ -95,7 +95,7 @@
       <!-- 강사 및 메타 정보 -->
       <div class="course-meta">
         <div class="instructor-info">
-          <el-icon size="14" color="#909399"><User /></el-icon>
+          <el-icon size="14" color="var(--text-tertiary)"><User /></el-icon>
           <span class="instructor-name">{{ course.instructor }}</span>
         </div>
 
@@ -103,9 +103,9 @@
 
         <div class="difficulty-info">
           <el-tag
-            :type="getDifficultyType(course.difficulty)"
-            size="small"
-            effect="plain"
+              :type="getDifficultyType(course.difficulty)"
+              size="small"
+              effect="plain"
           >
             {{ getDifficultyText(course.difficulty) }}
           </el-tag>
@@ -113,14 +113,14 @@
 
         <div v-if="course.rating" class="rating-info">
           <div class="meta-divider">•</div>
-          <el-icon size="14" color="#f56c6c"><Star /></el-icon>
+          <el-icon size="14" color="var(--color-warning)"><Star /></el-icon>
           <span class="rating-value">{{ course.rating.toFixed(1) }}</span>
         </div>
 
         <!-- 언어 지원 -->
         <div v-if="supportedLanguages.length > 1" class="language-info">
           <div class="meta-divider">•</div>
-          <el-icon size="14" color="#67c23a"><Reading /></el-icon>
+          <el-icon size="14" color="var(--color-success)"><Reading /></el-icon>
           <span class="language-count">{{ supportedLanguages.length }}개 언어</span>
         </div>
       </div>
@@ -128,11 +128,11 @@
       <!-- Flask 특화 정보 -->
       <div v-if="course.flaskData" class="flask-meta">
         <div class="flask-info">
-          <el-icon size="12" color="#909399"><DataLine /></el-icon>
+          <el-icon size="12" color="var(--text-tertiary)"><DataLine /></el-icon>
           <span class="flask-text">Flask ID: {{ course.flaskData.groupId }}</span>
         </div>
         <div v-if="course.flaskData.basefolder" class="folder-info">
-          <el-icon size="12" color="#909399"><FolderOpened /></el-icon>
+          <el-icon size="12" color="var(--text-tertiary)"><FolderOpened /></el-icon>
           <span class="folder-text">{{ course.flaskData.basefolder }}</span>
         </div>
       </div>
@@ -144,10 +144,10 @@
           <span class="progress-value">{{ Math.round(normalizedProgress) }}%</span>
         </div>
         <el-progress
-          :percentage="normalizedProgress"
-          :stroke-width="6"
-          :show-text="false"
-          :color="getProgressColor(normalizedProgress)"
+            :percentage="normalizedProgress"
+            :stroke-width="6"
+            :show-text="false"
+            :color="getProgressColor(normalizedProgress)"
         />
         <div v-if="progressLastWatched" class="last-watched">
           <span class="last-watched-text">
@@ -160,11 +160,11 @@
       <div class="course-actions">
         <!-- 수강 신청 버튼 -->
         <el-button
-          v-if="showEnrollButton"
-          type="primary"
-          size="small"
-          @click.stop="handleEnroll"
-          :loading="enrolling"
+            v-if="showEnrollButton"
+            type="primary"
+            size="small"
+            @click.stop="handleEnroll"
+            :loading="enrolling"
         >
           <template #icon>
             <el-icon><Plus /></el-icon>
@@ -174,10 +174,10 @@
 
         <!-- 이어보기 버튼 -->
         <el-button
-          v-if="showContinueButton"
-          type="success"
-          size="small"
-          @click.stop="handleContinue"
+            v-if="showContinueButton"
+            type="success"
+            size="small"
+            @click.stop="handleContinue"
         >
           <template #icon>
             <el-icon><VideoPlay /></el-icon>
@@ -187,10 +187,10 @@
 
         <!-- 시작하기 버튼 -->
         <el-button
-          v-if="showStartButton"
-          type="primary"
-          size="small"
-          @click.stop="handleStart"
+            v-if="showStartButton"
+            type="primary"
+            size="small"
+            @click.stop="handleStart"
         >
           <template #icon>
             <el-icon><VideoPlay /></el-icon>
@@ -200,10 +200,10 @@
 
         <!-- 다시보기 버튼 -->
         <el-button
-          v-if="showReviewButton"
-          type="info"
-          size="small"
-          @click.stop="handleReview"
+            v-if="showReviewButton"
+            type="info"
+            size="small"
+            @click.stop="handleReview"
         >
           <template #icon>
             <el-icon><Refresh /></el-icon>
@@ -213,10 +213,10 @@
 
         <!-- QR 접근 버튼 -->
         <el-button
-          v-if="course.qrCode"
-          size="small"
-          @click.stop="handleQRAccess"
-          class="qr-btn"
+            v-if="course.qrCode"
+            size="small"
+            @click.stop="handleQRAccess"
+            class="qr-btn"
         >
           <template #icon>
             <el-icon><CameraFilled /></el-icon>
@@ -226,12 +226,12 @@
 
         <!-- 북마크 버튼 -->
         <el-button
-          v-if="showBookmark"
-          :type="isBookmarked ? 'warning' : 'info'"
-          size="small"
-          circle
-          @click.stop="handleBookmark"
-          class="bookmark-btn"
+            v-if="showBookmark"
+            :type="isBookmarked ? 'warning' : 'info'"
+            size="small"
+            circle
+            @click.stop="handleBookmark"
+            class="bookmark-btn"
         >
           <el-icon>
             <StarFilled v-if="isBookmarked" />
@@ -420,9 +420,9 @@ const getDifficultyText = (difficulty) => {
 
 // 진행률 색상
 const getProgressColor = (progress) => {
-  if (progress >= 100) return '#67c23a'
-  if (progress >= 50) return '#e6a23c'
-  return '#409eff'
+  if (progress >= 100) return 'var(--color-success)'
+  if (progress >= 50) return 'var(--color-warning)'
+  return 'var(--accent-primary)'
 }
 
 // 시간 포맷팅
@@ -512,33 +512,36 @@ const onImageError = (event) => {
 </script>
 
 <style scoped>
-/* === 카드 기본 스타일 === */
+/* =================== 카드 기본 스타일 =================== */
 .course-card {
   position: relative;
   cursor: pointer;
-  transition: all 0.3s ease;
-  border-radius: 16px;
+  transition: all var(--transition-base);
+  border-radius: var(--radius-xl);
   overflow: hidden;
   height: 100%;
   display: flex;
   flex-direction: column;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
 }
 
 .course-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(103, 194, 58, 0.3);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--accent-primary);
 }
 
 .course-card.selected {
-  border-color: #409eff;
-  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
 .course-card.has-progress {
-  border-left: 4px solid #409eff;
+  border-left: 4px solid var(--accent-primary);
 }
 
-/* === 썸네일 영역 === */
+/* =================== 썸네일 영역 =================== */
 .course-thumbnail {
   position: relative;
   width: 100%;
@@ -550,14 +553,14 @@ const onImageError = (event) => {
   width: 100%;
   height: 180px;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--bg-tertiary);
 }
 
 .thumbnail-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-base);
 }
 
 .course-card:hover .thumbnail-image {
@@ -570,52 +573,52 @@ const onImageError = (event) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--color-gray-200) 100%);
 }
 
-/* === 오버레이 요소들 === */
+/* =================== 오버레이 요소들 =================== */
 .selection-overlay {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: var(--space-3);
+  right: var(--space-3);
   z-index: 2;
 }
 
 .status-badges {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: var(--space-3);
+  left: var(--space-3);
   z-index: 2;
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   flex-wrap: wrap;
 }
 
 .status-badge {
-  font-weight: 600;
-  font-size: 11px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-xs);
 }
 
 .duration-badge {
   position: absolute;
-  bottom: 12px;
-  right: 12px;
+  bottom: var(--space-3);
+  right: var(--space-3);
   z-index: 2;
 }
 
 .duration-text {
-  margin-left: 4px;
-  font-size: 11px;
-  font-weight: 500;
+  margin-left: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
 }
 
-/* === 콘텐츠 영역 === */
+/* =================== 콘텐츠 영역 =================== */
 .course-content {
-  padding: 16px;
+  padding: var(--space-4);
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .course-category {
@@ -623,11 +626,11 @@ const onImageError = (event) => {
 }
 
 .course-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #1a1a1a;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
   margin: 0;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
 
   /* 텍스트 말줄임 (2줄) */
   display: -webkit-box;
@@ -637,15 +640,15 @@ const onImageError = (event) => {
   text-overflow: ellipsis;
 
   /* 최소/최대 높이 설정 */
-  min-height: calc(17px * 1.25 * 1);
-  max-height: calc(17px * 1.25 * 2);
+  min-height: calc(var(--text-lg) * var(--leading-tight) * 1);
+  max-height: calc(var(--text-lg) * var(--leading-tight) * 2);
 }
 
 .course-description {
-  font-size: 13px;
-  color: #6c757d;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 
   /* 텍스트 말줄임 (2줄) */
   display: -webkit-box;
@@ -655,17 +658,17 @@ const onImageError = (event) => {
   text-overflow: ellipsis;
 
   /* 최소/최대 높이 설정 */
-  min-height: calc(13px * 1.5 * 1);
-  max-height: calc(13px * 1.5 * 2);
+  min-height: calc(var(--text-sm) * var(--leading-normal) * 1);
+  max-height: calc(var(--text-sm) * var(--leading-normal) * 2);
 }
 
-/* === 메타 정보 === */
+/* =================== 메타 정보 =================== */
 .course-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: #909399;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
   flex-wrap: wrap;
 }
 
@@ -675,30 +678,30 @@ const onImageError = (event) => {
 .language-info {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .instructor-name,
 .rating-value,
 .language-count {
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .meta-divider {
-  color: #c0c4cc;
-  font-weight: bold;
+  color: var(--border-secondary);
+  font-weight: var(--font-bold);
 }
 
-/* === Flask 메타 정보 === */
+/* =================== Flask 메타 정보 =================== */
 .flask-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 10px;
-  color: #a8abb2;
-  padding: 8px;
-  background: #f8f9fa;
-  border-radius: 6px;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  padding: var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
   margin-top: auto;
 }
 
@@ -706,19 +709,19 @@ const onImageError = (event) => {
 .folder-info {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .flask-text,
 .folder-text {
-  font-weight: 500;
+  font-weight: var(--font-medium);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* === 진행률 === */
+/* =================== 진행률 =================== */
 .course-progress {
   margin-top: auto;
 }
@@ -727,75 +730,77 @@ const onImageError = (event) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .progress-label {
-  font-size: 11px;
-  color: #909399;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 .progress-value {
-  font-size: 11px;
-  font-weight: 600;
-  color: #409eff;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--accent-primary);
 }
 
 .last-watched {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   text-align: center;
 }
 
 .last-watched-text {
-  font-size: 10px;
-  color: #a8abb2;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
-/* === 액션 버튼들 === */
+/* =================== 액션 버튼들 =================== */
 .course-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: auto;
-  padding-top: 8px;
-  border-top: 1px solid #f1f3f4;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-primary);
   flex-wrap: wrap;
 }
 
 .qr-btn {
-  background: linear-gradient(45deg, #409eff, #67c23a);
+  background: linear-gradient(45deg, var(--accent-primary), var(--color-success));
   color: white;
   border: none;
 }
 
 .qr-btn:hover {
-  background: linear-gradient(45deg, #337ecc, #5daf34);
+  background: linear-gradient(45deg, var(--accent-hover), var(--color-success));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .bookmark-btn {
   margin-left: auto;
 }
 
-/* === 반응형 디자인 === */
+/* =================== 반응형 디자인 =================== */
 @media (max-width: 768px) {
   .thumbnail-container {
     height: 140px;
   }
 
   .course-content {
-    padding: 12px;
-    gap: 8px;
+    padding: var(--space-3);
+    gap: var(--space-2);
   }
 
   .course-title {
-    font-size: 15px;
+    font-size: var(--text-base);
   }
 
   .course-description {
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   .course-actions {
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .course-actions .el-button {
@@ -805,14 +810,14 @@ const onImageError = (event) => {
 
   .bookmark-btn {
     flex: none;
-    margin-left: 4px;
+    margin-left: var(--space-1);
   }
 
   .flask-meta {
-    font-size: 9px;
-    padding: 6px;
+    font-size: var(--text-xs);
+    padding: var(--space-1);
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1);
   }
 }
 
@@ -827,7 +832,7 @@ const onImageError = (event) => {
   }
 
   .course-meta {
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .course-actions {
@@ -840,7 +845,7 @@ const onImageError = (event) => {
   }
 }
 
-/* === 접근성 === */
+/* =================== 접근성 =================== */
 @media (prefers-reduced-motion: reduce) {
   .course-card,
   .thumbnail-image {
@@ -852,26 +857,14 @@ const onImageError = (event) => {
   }
 }
 
-/* === 포커스 스타일 === */
+/* =================== 포커스 스타일 =================== */
 .course-card:focus,
 .course-card:focus-within {
-  outline: 2px solid #409eff;
+  outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
 
-/* === 애니메이션 === */
+/* =================== 애니메이션 =================== */
 .course-card {
-  animation: fadeInUp 0.3s ease-out;
+  animation: slideUp var(--transition-base) ease-out;
 }
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</style>

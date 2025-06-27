@@ -9,11 +9,11 @@
 
       <div class="filter-actions">
         <el-button
-          v-if="hasActiveFilters"
-          size="small"
-          type="info"
-          text
-          @click="clearAllFilters"
+            v-if="hasActiveFilters"
+            size="small"
+            type="info"
+            text
+            @click="clearAllFilters"
         >
           <template #icon>
             <el-icon><RefreshLeft /></el-icon>
@@ -22,10 +22,10 @@
         </el-button>
 
         <el-button
-          size="small"
-          type="primary"
-          text
-          @click="toggleExpanded"
+            size="small"
+            type="primary"
+            text
+            @click="toggleExpanded"
         >
           <template #icon>
             <el-icon>
@@ -44,41 +44,41 @@
         <!-- 검색 -->
         <div class="quick-search">
           <el-input
-            v-model="localFilters.search"
-            placeholder="강의 검색..."
-            :prefix-icon="Search"
-            clearable
-            size="default"
-            @input="onSearchInput"
-            @clear="onSearchClear"
-            @keyup.enter="applyFilters"
+              v-model="localFilters.search"
+              placeholder="강의 검색..."
+              :prefix-icon="Search"
+              clearable
+              size="default"
+              @input="onSearchInput"
+              @clear="onSearchClear"
+              @keyup.enter="applyFilters"
           />
         </div>
 
         <!-- 🔧 CategoryService를 사용한 메인 카테고리 -->
         <el-select
-          v-model="localFilters.category"
-          placeholder="카테고리"
-          clearable
-          size="default"
-          class="filter-select"
-          @change="onCategoryChange"
+            v-model="localFilters.category"
+            placeholder="카테고리"
+            clearable
+            size="default"
+            class="filter-select"
+            @change="onCategoryChange"
         >
           <el-option
-            v-for="category in mainCategories"
-            :key="category"
-            :label="category"
-            :value="category"
+              v-for="category in mainCategories"
+              :key="category"
+              :label="category"
+              :value="category"
           />
         </el-select>
 
         <!-- 정렬 -->
         <el-select
-          v-model="localFilters.sortBy"
-          placeholder="정렬"
-          size="default"
-          class="filter-select"
-          @change="onSortChange"
+            v-model="localFilters.sortBy"
+            placeholder="정렬"
+            size="default"
+            class="filter-select"
+            @change="onSortChange"
         >
           <el-option label="최신순" value="newest" />
           <el-option label="인기순" value="popular" />
@@ -98,19 +98,19 @@
         <div class="filter-group">
           <label class="filter-label">중간 카테고리</label>
           <el-select
-            v-model="localFilters.middleCategory"
-            placeholder="중간 카테고리 선택"
-            clearable
-            size="default"
-            class="filter-input"
-            :disabled="!localFilters.category || localFilters.category === '전체'"
-            @change="onMiddleCategoryChange"
+              v-model="localFilters.middleCategory"
+              placeholder="중간 카테고리 선택"
+              clearable
+              size="default"
+              class="filter-input"
+              :disabled="!localFilters.category || localFilters.category === '전체'"
+              @change="onMiddleCategoryChange"
           >
             <el-option
-              v-for="middleCategory in currentMiddleCategories"
-              :key="middleCategory"
-              :label="middleCategory"
-              :value="middleCategory"
+                v-for="middleCategory in currentMiddleCategories"
+                :key="middleCategory"
+                :label="middleCategory"
+                :value="middleCategory"
             />
           </el-select>
         </div>
@@ -119,18 +119,18 @@
         <div class="filter-group">
           <label class="filter-label">세부 카테고리</label>
           <el-select
-            v-model="localFilters.leafCategory"
-            placeholder="세부 카테고리 선택"
-            clearable
-            size="default"
-            class="filter-input"
-            :disabled="!localFilters.middleCategory"
+              v-model="localFilters.leafCategory"
+              placeholder="세부 카테고리 선택"
+              clearable
+              size="default"
+              class="filter-input"
+              :disabled="!localFilters.middleCategory"
           >
             <el-option
-              v-for="leafCategory in currentLeafCategories"
-              :key="leafCategory"
-              :label="leafCategory"
-              :value="leafCategory"
+                v-for="leafCategory in currentLeafCategories"
+                :key="leafCategory"
+                :label="leafCategory"
+                :value="leafCategory"
             />
           </el-select>
         </div>
@@ -139,11 +139,11 @@
         <div class="filter-group">
           <label class="filter-label">난이도</label>
           <el-select
-            v-model="localFilters.difficulty"
-            placeholder="난이도 선택"
-            clearable
-            size="default"
-            class="filter-input"
+              v-model="localFilters.difficulty"
+              placeholder="난이도 선택"
+              clearable
+              size="default"
+              class="filter-input"
           >
             <el-option label="초급" value="beginner">
               <el-tag type="success" size="small">초급</el-tag>
@@ -161,18 +161,18 @@
         <div class="filter-group">
           <label class="filter-label">강사</label>
           <el-select
-            v-model="localFilters.instructor"
-            placeholder="강사 선택"
-            clearable
-            filterable
-            size="default"
-            class="filter-input"
+              v-model="localFilters.instructor"
+              placeholder="강사 선택"
+              clearable
+              filterable
+              size="default"
+              class="filter-input"
           >
             <el-option
-              v-for="instructor in availableInstructors"
-              :key="instructor"
-              :label="instructor"
-              :value="instructor"
+                v-for="instructor in availableInstructors"
+                :key="instructor"
+                :label="instructor"
+                :value="instructor"
             />
           </el-select>
         </div>
@@ -181,11 +181,11 @@
         <div class="filter-group">
           <label class="filter-label">진행 상태</label>
           <el-select
-            v-model="localFilters.status"
-            placeholder="상태 선택"
-            clearable
-            size="default"
-            class="filter-input"
+              v-model="localFilters.status"
+              placeholder="상태 선택"
+              clearable
+              size="default"
+              class="filter-input"
           >
             <el-option label="전체" value="" />
             <el-option label="미수강" value="not-enrolled">
@@ -204,11 +204,11 @@
         <div class="filter-group">
           <label class="filter-label">강의 시간</label>
           <el-select
-            v-model="localFilters.duration"
-            placeholder="시간 선택"
-            clearable
-            size="default"
-            class="filter-input"
+              v-model="localFilters.duration"
+              placeholder="시간 선택"
+              clearable
+              size="default"
+              class="filter-input"
           >
             <el-option label="30분 이하" value="short" />
             <el-option label="30분~1시간" value="medium" />
@@ -221,11 +221,11 @@
         <div class="filter-group">
           <label class="filter-label">평점</label>
           <el-select
-            v-model="localFilters.rating"
-            placeholder="평점 선택"
-            clearable
-            size="default"
-            class="filter-input"
+              v-model="localFilters.rating"
+              placeholder="평점 선택"
+              clearable
+              size="default"
+              class="filter-input"
           >
             <el-option label="4.5점 이상" value="4.5" />
             <el-option label="4.0점 이상" value="4.0" />
@@ -240,11 +240,11 @@
         <div class="tag-filters">
           <div class="tag-filter-container">
             <el-check-tag
-              v-for="tag in popularTags"
-              :key="tag"
-              :checked="localFilters.tags.includes(tag)"
-              @change="onTagToggle(tag, $event)"
-              class="tag-item"
+                v-for="tag in popularTags"
+                :key="tag"
+                :checked="localFilters.tags.includes(tag)"
+                @change="onTagToggle(tag, $event)"
+                class="tag-item"
             >
               {{ tag }}
             </el-check-tag>
@@ -256,26 +256,26 @@
       <div class="advanced-options">
         <div class="advanced-options-row">
           <el-checkbox
-            v-model="localFilters.hasVideo"
-            @change="onAdvancedOptionChange"
+              v-model="localFilters.hasVideo"
+              @change="onAdvancedOptionChange"
           >
             동영상 있는 강의만
           </el-checkbox>
           <el-checkbox
-            v-model="localFilters.hasCertificate"
-            @change="onAdvancedOptionChange"
+              v-model="localFilters.hasCertificate"
+              @change="onAdvancedOptionChange"
           >
             수료증 발급 강의만
           </el-checkbox>
           <el-checkbox
-            v-model="localFilters.isFree"
-            @change="onAdvancedOptionChange"
+              v-model="localFilters.isFree"
+              @change="onAdvancedOptionChange"
           >
             무료 강의만
           </el-checkbox>
           <el-checkbox
-            v-model="localFilters.isNew"
-            @change="onAdvancedOptionChange"
+              v-model="localFilters.isNew"
+              @change="onAdvancedOptionChange"
           >
             신규 강의만
           </el-checkbox>
@@ -292,13 +292,13 @@
       </div>
       <div class="active-filters-list">
         <el-tag
-          v-for="filter in activeFilters"
-          :key="filter.key"
-          :type="filter.type"
-          closable
-          @close="removeFilter(filter.key)"
-          size="small"
-          class="active-filter-tag"
+            v-for="filter in activeFilters"
+            :key="filter.key"
+            :type="filter.type"
+            closable
+            @close="removeFilter(filter.key)"
+            size="small"
+            class="active-filter-tag"
         >
           {{ filter.label }}
         </el-tag>
@@ -403,20 +403,20 @@ const currentLeafCategories = computed(() => {
 const hasActiveFilters = computed(() => {
   const filters = localFilters.value
   return !!(
-    filters.search ||
-    filters.category ||
-    filters.middleCategory ||
-    filters.leafCategory ||
-    filters.difficulty ||
-    filters.instructor ||
-    filters.status ||
-    filters.duration ||
-    filters.rating ||
-    filters.tags.length > 0 ||
-    filters.hasVideo ||
-    filters.hasCertificate ||
-    filters.isFree ||
-    filters.isNew
+      filters.search ||
+      filters.category ||
+      filters.middleCategory ||
+      filters.leafCategory ||
+      filters.difficulty ||
+      filters.instructor ||
+      filters.status ||
+      filters.duration ||
+      filters.rating ||
+      filters.tags.length > 0 ||
+      filters.hasVideo ||
+      filters.hasCertificate ||
+      filters.isFree ||
+      filters.isNew
   )
 })
 
@@ -748,41 +748,44 @@ watch(localFilters, (newFilters) => {
 </script>
 
 <style scoped>
-/* === 필터 카드 === */
+/* =================== 필터 카드 =================== */
 .course-filter-card {
-  margin-bottom: 16px;
-  border-radius: 16px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
 }
 
-/* === 헤더 === */
+/* =================== 헤더 =================== */
 .filter-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .filter-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: #1a1a1a;
+  gap: var(--space-2);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-base);
 }
 
 .filter-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
-/* === 빠른 필터 === */
+/* =================== 빠른 필터 =================== */
 .quick-filters {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .quick-filters-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -793,25 +796,25 @@ watch(localFilters, (newFilters) => {
 }
 
 .filter-select {
-  width: 120px;
+  width: 140px;
 }
 
-/* === 상세 필터 === */
+/* =================== 상세 필터 =================== */
 .detailed-filters {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .filter-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .filter-group.full-width {
@@ -819,77 +822,153 @@ watch(localFilters, (newFilters) => {
 }
 
 .filter-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: #6c757d;
-  margin-bottom: 4px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
 }
 
 .filter-input {
   width: 100%;
 }
 
-/* === 태그 필터 === */
+/* =================== 태그 필터 =================== */
 .tag-filters {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 .tag-filter-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .tag-item {
   margin: 0;
+  transition: all var(--transition-fast);
 }
 
-/* === 고급 옵션 === */
+.tag-item:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =================== 고급 옵션 =================== */
 .advanced-options {
-  padding-top: 12px;
-  border-top: 1px solid #e9ecef;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-primary);
 }
 
 .advanced-options-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
-/* === 활성 필터 === */
+/* =================== 활성 필터 =================== */
 .active-filters {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 .active-filters-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .active-filters-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: #6c757d;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
 }
 
 .active-filters-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .active-filter-tag {
   margin: 0;
+  transition: all var(--transition-fast);
 }
 
-/* === 반응형 디자인 === */
+.active-filter-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =================== Element Plus 커스터마이징 =================== */
+.course-filter-card :deep(.el-card__body) {
+  padding: var(--space-5);
+}
+
+.course-filter-card :deep(.el-input__wrapper) {
+  border-radius: var(--radius-lg);
+  border-color: var(--border-secondary);
+  transition: all var(--transition-fast);
+}
+
+.course-filter-card :deep(.el-input__wrapper:hover) {
+  border-color: var(--accent-primary);
+}
+
+.course-filter-card :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.course-filter-card :deep(.el-select__wrapper) {
+  border-radius: var(--radius-lg);
+  border-color: var(--border-secondary);
+  transition: all var(--transition-fast);
+}
+
+.course-filter-card :deep(.el-select__wrapper:hover) {
+  border-color: var(--accent-primary);
+}
+
+.course-filter-card :deep(.el-select__wrapper.is-focus) {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.course-filter-card :deep(.el-button--text) {
+  color: var(--accent-primary);
+}
+
+.course-filter-card :deep(.el-button--text:hover) {
+  color: var(--accent-hover);
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.course-filter-card :deep(.el-check-tag) {
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.course-filter-card :deep(.el-check-tag.is-checked) {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.course-filter-card :deep(.el-tag) {
+  border-radius: var(--radius-md);
+}
+
+.course-filter-card :deep(.el-divider--horizontal) {
+  margin: var(--space-4) 0;
+  border-color: var(--border-primary);
+}
+
+/* =================== 반응형 디자인 =================== */
 @media (max-width: 768px) {
   .filter-header {
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: stretch;
   }
 
@@ -912,51 +991,66 @@ watch(localFilters, (newFilters) => {
 
   .filter-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .advanced-options-row {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
+  }
+
+  .course-filter-card :deep(.el-card__body) {
+    padding: var(--space-4);
   }
 }
 
 @media (max-width: 480px) {
-  .course-filter-card :deep(.el-card__body) {
-    padding: 12px;
-  }
-
   .filter-grid {
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .active-filters-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: var(--space-1);
+  }
+
+  .course-filter-card :deep(.el-card__body) {
+    padding: var(--space-3);
   }
 }
 
-/* === 애니메이션 === */
+/* =================== 애니메이션 =================== */
 .course-filter-card {
-  animation: fadeInDown 0.3s ease-out;
+  animation: slideUp var(--transition-base) ease-out;
 }
 
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.detailed-filters {
+  animation: fadeIn var(--transition-base) ease-out;
 }
 
-/* === 접근성 === */
+.active-filters {
+  animation: fadeIn var(--transition-base) ease-out;
+}
+
+/* =================== 접근성 =================== */
 @media (prefers-reduced-motion: reduce) {
-  .course-filter-card {
+  .course-filter-card,
+  .detailed-filters,
+  .active-filters,
+  .tag-item,
+  .active-filter-tag {
     animation: none;
   }
+
+  .tag-item:hover,
+  .active-filter-tag:hover {
+    transform: none;
+  }
+}
+
+/* =================== 포커스 스타일 =================== */
+.course-filter-card:focus-within {
+  box-shadow: var(--shadow-md);
 }
 </style>
