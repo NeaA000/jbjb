@@ -235,8 +235,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authService, firestoreService, storageService } from '@/services/firebase'
-import PasswordChangeModal from '@/components/profile/PasswordChangeModal.vue'
-import Toast from '@/components/common/Toast.vue'
+// 수정된 코드 (올바른 경로)
+// PasswordChangeModal은 존재하지 않으므로 주석 처리하거나 삭제
+// import PasswordChangeModal from '@/components/profile/PasswordChangeModal.vue'
+import Toast from '@/views/profile/PasswordChangeModal.vue'
 import {
   ChevronLeft, Camera, User, Mail, Save, Loader, FileText,
   MapPin, Globe, Tag, Shield, Lock, Upload, Trash2, X, Info

@@ -1,134 +1,123 @@
 <!-- web/src/views/learning/VideoWarningView.vue -->
 <template>
-  <div class="page-wrapper">
-    <!-- 배경 그라데이션 -->
-    <div class="background-gradient"></div>
-
-    <!-- 메인 콘텐츠 -->
-    <div class="container">
-      <div class="content-wrapper">
-        <!-- 경고 카드 -->
-        <div class="warning-card">
-          <!-- 경고 아이콘 -->
-          <div class="icon-section">
-            <div class="icon-wrapper">
-              <AlertTriangle :size="48" />
-            </div>
+  <div class="warning-container">
+    <div class="content-wrapper">
+      <!-- 경고 카드 (프로젝트의 education-card 스타일 적용) -->
+      <div class="warning-card education-card">
+        <!-- 경고 아이콘 -->
+        <div class="icon-section">
+          <div class="icon-wrapper animate-pulse">
+            <AlertTriangle class="icon" />
           </div>
+        </div>
 
-          <!-- 제목 -->
-          <header class="card-header">
-            <h1 class="title">안전 교육 수강 전 필수 확인사항</h1>
-            <p class="subtitle">안전한 교육 수강을 위해 아래 내용을 반드시 확인해주세요</p>
-          </header>
+        <!-- 제목 -->
+        <header class="card-header">
+          <h1 class="title">안전 교육 수강 전 필수 확인사항</h1>
+          <p class="subtitle">안전한 교육 수강을 위해 아래 내용을 반드시 확인해주세요</p>
+        </header>
 
-          <!-- 경고 사항 -->
-          <section class="warnings-section">
-            <article class="warning-item danger">
-              <div class="warning-icon-wrapper">
-                <Ban :size="24" />
-              </div>
-              <div class="warning-content">
-                <h3 class="warning-title">작업 중 교육 수강 절대 금지</h3>
-                <p class="warning-text">
-                  기계 조작, 운전, 높은 곳 작업 등 위험한 작업 중에는 절대 교육을 수강하지 마세요.
-                  사고의 위험이 있습니다.
-                </p>
-              </div>
-            </article>
-
-            <article class="warning-item caution">
-              <div class="warning-icon-wrapper">
-                <Smartphone :size="24" />
-              </div>
-              <div class="warning-content">
-                <h3 class="warning-title">기기 흔들림 자동 감지</h3>
-                <p class="warning-text">
-                  이동 중이거나 기기가 흔들리면 자동으로 재생이 일시정지됩니다.
-                  안전한 장소에서 정지한 상태로 수강해주세요.
-                </p>
-              </div>
-            </article>
-
-            <article class="warning-item info">
-              <div class="warning-icon-wrapper">
-                <Eye :size="24" />
-              </div>
-              <div class="warning-content">
-                <h3 class="warning-title">집중하여 수강하기</h3>
-                <p class="warning-text">
-                  안전 교육은 여러분의 생명과 직결됩니다.
-                  다른 일을 하지 말고 교육 내용에 집중해주세요.
-                </p>
-              </div>
-            </article>
-          </section>
-
-          <!-- 체크리스트 -->
-          <section class="checklist-section">
-            <h3 class="checklist-title">수강 전 체크리스트</h3>
-            <div class="checklist-items">
-              <label
-                  v-for="(item, index) in checkItems"
-                  :key="index"
-                  class="checklist-item"
-                  :class="{ checked: item.checked }"
-              >
-                <div class="checkbox-wrapper">
-                  <input
-                      type="checkbox"
-                      v-model="item.checked"
-                      class="checkbox-input"
-                  />
-                  <div class="checkbox-custom">
-                    <svg v-if="item.checked" class="checkbox-icon" fill="none" viewBox="0 0 12 10">
-                      <path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M1.5 5.5L4.5 8.5L10.5 1.5"/>
-                    </svg>
-                  </div>
-                </div>
-                <span class="checkbox-label">{{ item.text }}</span>
-              </label>
+        <!-- 경고 사항 -->
+        <section class="warnings-section">
+          <article class="warning-item danger">
+            <div class="warning-icon-wrapper">
+              <Ban class="warning-icon" />
             </div>
-          </section>
-
-          <!-- 강의 정보 -->
-          <div v-if="course" class="course-info">
-            <div class="course-thumbnail">
-              <PlayCircle :size="28" />
-            </div>
-            <div class="course-details">
-              <p class="course-label">수강 예정 강의</p>
-              <h4 class="course-title">{{ course.title }}</h4>
-              <p v-if="selectedLanguage !== 'ko'" class="course-language">
-                {{ getLanguageName(selectedLanguage) }}로 수강
+            <div class="warning-content">
+              <h3 class="warning-title">작업 중 교육 수강 절대 금지</h3>
+              <p class="warning-text">
+                기계 조작, 운전, 높은 곳 작업 등 위험한 작업 중에는 절대 교육을 수강하지 마세요.
+                사고의 위험이 있습니다.
               </p>
             </div>
+          </article>
+
+          <article class="warning-item caution">
+            <div class="warning-icon-wrapper">
+              <Smartphone class="warning-icon" />
+            </div>
+            <div class="warning-content">
+              <h3 class="warning-title">기기 흔들림 자동 감지</h3>
+              <p class="warning-text">
+                이동 중이거나 기기가 흔들리면 자동으로 재생이 일시정지됩니다.
+                안전한 장소에서 정지한 상태로 수강해주세요.
+              </p>
+            </div>
+          </article>
+
+          <article class="warning-item info">
+            <div class="warning-icon-wrapper">
+              <Eye class="warning-icon" />
+            </div>
+            <div class="warning-content">
+              <h3 class="warning-title">집중하여 수강하기</h3>
+              <p class="warning-text">
+                안전 교육은 여러분의 생명과 직결됩니다.
+                다른 일을 하지 말고 교육 내용에 집중해주세요.
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <!-- 체크리스트 -->
+        <section class="checklist-section">
+          <h3 class="checklist-title">수강 전 체크리스트</h3>
+          <div class="checklist-items">
+            <label
+                v-for="(item, index) in checkItems"
+                :key="index"
+                class="checklist-item"
+                :class="{ checked: item.checked }"
+            >
+              <div class="checkbox-round" :class="item.checked ? 'checkbox-round-selected' : 'checkbox-round-unselected'">
+                <svg v-if="item.checked" class="w-4 h-4 text-white" fill="none" viewBox="0 0 12 10">
+                  <path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M1.5 5.5L4.5 8.5L10.5 1.5"/>
+                </svg>
+              </div>
+              <input
+                  type="checkbox"
+                  v-model="item.checked"
+                  class="sr-only"
+              />
+              <span class="checkbox-label">{{ item.text }}</span>
+            </label>
           </div>
+        </section>
 
-          <!-- 액션 버튼 -->
-          <footer class="card-footer">
-            <button
-                @click="router.back()"
-                class="btn btn-secondary"
-            >
-              돌아가기
-            </button>
-            <button
-                @click="proceedToLearning"
-                :disabled="!allChecked"
-                class="btn btn-primary"
-                :class="{ 'btn-disabled': !allChecked }"
-            >
-              <Shield :size="20" />
-              <span>안전하게 수강하기</span>
-            </button>
-          </footer>
-
-          <!-- 추가 안내 -->
-          <p class="footer-note">
-            본 안전 교육은 산업안전보건법에 따라 실시되는 법정 의무교육입니다.
-          </p>
+        <!-- 강의 정보 -->
+        <div v-if="course" class="course-info course-card">
+          <div class="course-icon-wrapper">
+            <PlayCircle class="course-icon" />
+          </div>
+          <div class="course-details">
+            <p class="course-label">수강 예정 강의</p>
+            <h4 class="course-title">{{ course.title }}</h4>
+          </div>
         </div>
+
+        <!-- 액션 버튼 -->
+        <footer class="card-footer">
+          <button
+              @click="router.back()"
+              class="action-button secondary"
+          >
+            돌아가기
+          </button>
+          <button
+              @click="proceedToLearning"
+              :disabled="!allChecked"
+              class="action-button education-button"
+              :class="{ disabled: !allChecked }"
+          >
+            <Shield class="button-icon" />
+            <span>안전하게 수강하기</span>
+          </button>
+        </footer>
+
+        <!-- 추가 안내 -->
+        <p class="footer-note">
+          본 안전 교육은 산업안전보건법에 따라 실시되는 법정 의무교육입니다.
+        </p>
       </div>
     </div>
   </div>
@@ -161,7 +150,6 @@ const props = defineProps({
 
 // 상태
 const course = ref(null)
-const selectedLanguage = ref('ko')
 const checkItems = ref([
   {
     text: '현재 안전한 장소에 있으며, 작업 중이 아닙니다.',
@@ -180,21 +168,6 @@ const checkItems = ref([
     checked: false
   }
 ])
-
-// 언어 이름 맵핑
-const languageNames = {
-  ko: '한국어',
-  en: 'English',
-  zh: '中文',
-  vi: 'Tiếng Việt',
-  th: 'ภาษาไทย',
-  ja: '日本語'
-}
-
-// 언어 이름 가져오기
-const getLanguageName = (code) => {
-  return languageNames[code] || code.toUpperCase()
-}
 
 // 모든 항목 체크 여부
 const allChecked = computed(() => {
@@ -217,80 +190,281 @@ const loadCourse = async () => {
 const proceedToLearning = () => {
   if (!allChecked.value) return
 
-  // URL에서 언어 정보 가져오기
-  const selectedLang = route.query.lang || 'ko'
-
-  // 학습 화면으로 이동 (언어 정보 포함)
-  router.push({
-    path: `/learning/${props.id}`,
-    query: { lang: selectedLang }
-  })
+  // 학습 화면으로 이동
+  router.push(`/learning/${props.id}`)
 }
 
 // 마운트
 onMounted(() => {
-  // URL에서 언어 정보 가져오기
-  selectedLanguage.value = route.query.lang || 'ko'
   loadCourse()
 })
 </script>
 
 <style scoped>
-/* =================== 페이지 구조 =================== */
-.page-wrapper {
+/* =================== CSS 변수 Import =================== */
+@import '@/assets/main.css';
+
+/* =================== 메인 컨테이너 =================== */
+.warning-container {
   min-height: 100vh;
-  background: var(--bg-primary, #f8fafc);
-  position: relative;
+  background: linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast, 0.15s ease);
-  background: white;
+  padding: var(--spacing-xl);
+  position: relative;
+  overflow: hidden;
 }
 
-.checkbox-input:checked ~ .checkbox-custom {
-  background: #22c55e;
-  border-color: #22c55e;
+.warning-container::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
-.checkbox-icon {
-  width: 1rem;
-  height: 1rem;
+.content-wrapper {
+  max-width: 720px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* =================== 경고 카드 =================== */
+.warning-card {
+  padding: var(--spacing-4xl);
+  background: white !important;
+  animation: slideUp 0.6s var(--easing-out);
+}
+
+@media (max-width: 768px) {
+  .warning-card {
+    padding: var(--spacing-2xl);
+  }
+}
+
+/* =================== 아이콘 섹션 =================== */
+.icon-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--spacing-3xl);
+}
+
+.icon-wrapper {
+  width: 96px;
+  height: 96px;
+  background: var(--gradient-danger);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: var(--shadow-lg);
+}
+
+.icon-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: var(--gradient-danger);
+  border-radius: 50%;
+  opacity: 0.3;
+  filter: blur(12px);
+  z-index: -1;
+}
+
+.icon {
+  width: 48px;
+  height: 48px;
   color: white;
+  position: relative;
+  z-index: 1;
+}
+
+/* =================== 헤더 =================== */
+.card-header {
+  text-align: center;
+  margin-bottom: var(--spacing-3xl);
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.title {
+  font-size: var(--font-size-4xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-md) 0;
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* =================== 경고 사항 =================== */
+.warnings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-3xl);
+}
+
+.warning-item {
+  display: flex;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-xl);
+  border-left: 4px solid;
+  background: var(--color-background-light);
+  transition: all var(--transition-base) var(--easing-base);
+}
+
+.warning-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.warning-item.danger {
+  border-left-color: var(--color-red);
+  background: rgba(245, 108, 108, 0.05);
+}
+
+.warning-item.caution {
+  border-left-color: var(--color-orange);
+  background: rgba(230, 162, 60, 0.05);
+}
+
+.warning-item.info {
+  border-left-color: var(--color-blue);
+  background: rgba(64, 158, 255, 0.05);
+}
+
+.warning-icon-wrapper {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.warning-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.warning-item.danger .warning-icon { color: var(--color-red); }
+.warning-item.caution .warning-icon { color: var(--color-orange); }
+.warning-item.info .warning-icon { color: var(--color-blue); }
+
+.warning-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.warning-title {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.warning-item.danger .warning-title { color: #b91c1c; }
+.warning-item.caution .warning-title { color: #c2410c; }
+.warning-item.info .warning-title { color: #1e40af; }
+
+.warning-text {
+  font-size: var(--font-size-md);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.warning-item.danger .warning-text { color: #dc2626; }
+.warning-item.caution .warning-text { color: #ea580c; }
+.warning-item.info .warning-text { color: #2563eb; }
+
+/* =================== 체크리스트 =================== */
+.checklist-section {
+  background: var(--color-background-light);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-2xl);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.checklist-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-xl) 0;
+}
+
+.checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-base);
+}
+
+.checklist-item:hover {
+  background: rgba(103, 194, 58, 0.05);
+}
+
+.checklist-item.checked {
+  background: rgba(103, 194, 58, 0.1);
 }
 
 .checkbox-label {
-  color: var(--text-primary, #374151);
-  font-size: var(--text-base, 1rem);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
   line-height: 1.6;
   user-select: none;
 }
 
 /* =================== 강의 정보 =================== */
 .course-info {
+  margin-bottom: var(--spacing-2xl);
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1.25rem;
-  background: var(--bg-tertiary, #f9fafb);
-  border: 2px solid var(--border-primary, #e5e7eb);
-  border-radius: var(--radius-xl, 0.75rem);
-  margin-bottom: 1.5rem;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  border: 2px solid var(--color-border-light);
 }
 
-.course-thumbnail {
-  width: 3rem;
-  height: 3rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: var(--radius-lg, 0.5rem);
+.course-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  background: var(--gradient-education);
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
+  box-shadow: var(--shadow-green);
 }
 
-.course-thumbnail svg {
+.course-icon {
+  width: 28px;
+  height: 28px;
   color: white;
 }
 
@@ -300,387 +474,148 @@ onMounted(() => {
 }
 
 .course-label {
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--text-secondary, #6b7280);
-  margin: 0 0 0.25rem 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--spacing-xs) 0;
 }
 
 .course-title {
-  font-size: var(--text-base, 1rem);
-  font-weight: var(--font-semibold, 600);
-  color: var(--text-primary, #111827);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.course-language {
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--primary, #3b82f6);
-  margin: 0.25rem 0 0 0;
-  font-weight: var(--font-medium, 500);
-}
-
 /* =================== 푸터 =================== */
 .card-footer {
   display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-xl);
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.action-button {
+  flex: 1;
+  padding: var(--spacing-lg) var(--spacing-2xl);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.action-button:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
+.action-button.secondary {
+  background: var(--color-background-light);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-base);
+}
+
+.action-button.secondary:hover {
+  background: var(--color-background-dark);
+  border-color: var(--color-border-dark);
+}
+
+.action-button.education-button:not(.disabled) {
+  color: white;
+  border: none;
+}
+
+.action-button.disabled {
+  background: var(--color-border-light) !important;
+  color: var(--color-text-placeholder) !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+  box-shadow: none !important;
+}
+
+.button-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .footer-note {
   text-align: center;
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--text-secondary, #6b7280);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
   margin: 0;
   line-height: 1.6;
 }
 
-/* =================== 버튼 스타일 =================== */
-.btn {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  font-size: var(--text-base, 1rem);
-  font-weight: var(--font-medium, 500);
-  border: none;
-  border-radius: var(--radius-lg, 0.5rem);
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.15s ease);
-  outline: none;
+/* =================== 애니메이션 =================== */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
-.btn:focus-visible {
-  outline: 2px solid var(--accent-primary, #3b82f6);
-  outline-offset: 2px;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.btn-primary:hover:not(.btn-disabled) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
-}
-
-.btn-secondary {
-  background: var(--bg-tertiary, #f3f4f6);
-  color: var(--text-primary, #374151);
-  border: 1px solid var(--border-primary, #e5e7eb);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-quaternary, #e5e7eb);
-  transform: translateY(-1px);
-}
-
-.btn-disabled {
-  background: var(--bg-quaternary, #e5e7eb) !important;
-  color: var(--text-tertiary, #9ca3af) !important;
-  cursor: not-allowed !important;
-  opacity: 0.6;
-  transform: none !important;
-  box-shadow: none !important;
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* =================== 반응형 디자인 =================== */
 @media (max-width: 640px) {
+  .warning-container {
+    padding: var(--spacing-lg);
+  }
+
   .title {
-    font-size: var(--text-xl, 1.25rem);
+    font-size: var(--font-size-3xl);
+  }
+
+  .subtitle {
+    font-size: var(--font-size-md);
   }
 
   .warning-item {
     flex-direction: column;
-    gap: 0.75rem;
+    padding: var(--spacing-lg);
   }
 
   .checklist-section {
-    padding: 1.25rem;
+    padding: var(--spacing-xl);
   }
 
   .card-footer {
     flex-direction: column;
   }
 
-  .btn {
+  .action-button {
     width: 100%;
   }
 }
 
 /* =================== 접근성 =================== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  * {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-
-  .warning-item:hover,
-  .btn:hover {
-    transform: none;
-  }
 }
-</style> center;
-justify-content: center;
-padding: 1rem;
-}
-
-/* =================== 배경 그라데이션 =================== */
-.background-gradient {
-position: absolute;
-inset: 0;
-background: linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%);
-opacity: 0.3;
-pointer-events: none;
-}
-
-.background-gradient::before {
-content: '';
-position: absolute;
-top: -50%;
-right: -20%;
-width: 600px;
-height: 600px;
-background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
-border-radius: 50%;
-}
-
-/* =================== 컨테이너 =================== */
-.container {
-max-width: 720px;
-width: 100%;
-margin: 0 auto;
-position: relative;
-z-index: 1;
-}
-
-.content-wrapper {
-width: 100%;
-}
-
-/* =================== 경고 카드 =================== */
-.warning-card {
-background: var(--bg-secondary, #ffffff);
-border-radius: var(--radius-2xl, 1rem);
-box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
-padding: 3rem;
-animation: slideUp 0.6s ease-out;
-}
-
-@media (max-width: 768px) {
-.warning-card {
-padding: 2rem 1.5rem;
-}
-}
-
-@keyframes slideUp {
-from {
-opacity: 0;
-transform: translateY(20px);
-}
-to {
-opacity: 1;
-transform: translateY(0);
-}
-}
-
-/* =================== 아이콘 섹션 =================== */
-.icon-section {
-display: flex;
-justify-content: center;
-margin-bottom: 2rem;
-}
-
-.icon-wrapper {
-width: 6rem;
-height: 6rem;
-background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-border-radius: 50%;
-display: flex;
-align-items: center;
-justify-content: center;
-box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
-position: relative;
-animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.icon-wrapper svg {
-color: white;
-}
-
-@keyframes pulse {
-0%, 100% {
-opacity: 1;
-}
-50% {
-opacity: 0.8;
-transform: scale(0.95);
-}
-}
-
-/* =================== 헤더 =================== */
-.card-header {
-text-align: center;
-margin-bottom: 2.5rem;
-}
-
-.title {
-font-size: var(--text-2xl, 1.5rem);
-font-weight: var(--font-bold, 700);
-color: var(--text-primary, #111827);
-margin: 0 0 0.75rem 0;
-line-height: 1.2;
-}
-
-.subtitle {
-font-size: var(--text-base, 1rem);
-color: var(--text-secondary, #6b7280);
-margin: 0;
-line-height: 1.6;
-}
-
-/* =================== 경고 사항 =================== */
-.warnings-section {
-display: flex;
-flex-direction: column;
-gap: 1rem;
-margin-bottom: 2rem;
-}
-
-.warning-item {
-display: flex;
-gap: 1rem;
-padding: 1.25rem;
-border-radius: var(--radius-xl, 0.75rem);
-border-left: 4px solid;
-background: var(--bg-tertiary, #f9fafb);
-transition: all var(--transition-base, 0.3s ease);
-}
-
-.warning-item:hover {
-transform: translateY(-2px);
-box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
-}
-
-.warning-item.danger {
-border-left-color: #ef4444;
-background: rgba(239, 68, 68, 0.05);
-}
-
-.warning-item.caution {
-border-left-color: #f59e0b;
-background: rgba(245, 158, 11, 0.05);
-}
-
-.warning-item.info {
-border-left-color: #3b82f6;
-background: rgba(59, 130, 246, 0.05);
-}
-
-.warning-icon-wrapper {
-flex-shrink: 0;
-width: 2.5rem;
-height: 2.5rem;
-border-radius: var(--radius-lg, 0.5rem);
-display: flex;
-align-items: center;
-justify-content: center;
-background: white;
-box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
-}
-
-.warning-item.danger .warning-icon-wrapper svg { color: #ef4444; }
-.warning-item.caution .warning-icon-wrapper svg { color: #f59e0b; }
-.warning-item.info .warning-icon-wrapper svg { color: #3b82f6; }
-
-.warning-content {
-flex: 1;
-min-width: 0;
-}
-
-.warning-title {
-font-size: var(--text-lg, 1.125rem);
-font-weight: var(--font-semibold, 600);
-margin: 0 0 0.25rem 0;
-line-height: 1.25;
-}
-
-.warning-item.danger .warning-title { color: #dc2626; }
-.warning-item.caution .warning-title { color: #d97706; }
-.warning-item.info .warning-title { color: #2563eb; }
-
-.warning-text {
-font-size: var(--text-sm, 0.875rem);
-margin: 0;
-line-height: 1.6;
-color: var(--text-secondary, #6b7280);
-}
-
-/* =================== 체크리스트 =================== */
-.checklist-section {
-background: var(--bg-tertiary, #f9fafb);
-border: 1px solid var(--border-primary, #e5e7eb);
-border-radius: var(--radius-xl, 0.75rem);
-padding: 1.5rem;
-margin-bottom: 1.5rem;
-}
-
-.checklist-title {
-font-size: var(--text-lg, 1.125rem);
-font-weight: var(--font-semibold, 600);
-color: var(--text-primary, #111827);
-margin: 0 0 1rem 0;
-}
-
-.checklist-items {
-display: flex;
-flex-direction: column;
-gap: 0.75rem;
-}
-
-.checklist-item {
-display: flex;
-align-items: flex-start;
-gap: 0.75rem;
-padding: 0.75rem;
-border-radius: var(--radius-lg, 0.5rem);
-cursor: pointer;
-transition: all var(--transition-fast, 0.15s ease);
-}
-
-.checklist-item:hover {
-background: rgba(34, 197, 94, 0.05);
-}
-
-.checklist-item.checked {
-background: rgba(34, 197, 94, 0.1);
-}
-
-.checkbox-wrapper {
-position: relative;
-flex-shrink: 0;
-}
-
-.checkbox-input {
-position: absolute;
-opacity: 0;
-width: 0;
-height: 0;
-}
-
-.checkbox-custom {
-width: 1.5rem;
-height: 1.5rem;
-border: 2px solid var(--border-secondary, #d1d5db);
-border-radius: var(--radius-md, 0.375rem);
-display: flex;
-align-items:
-}
+</style>
