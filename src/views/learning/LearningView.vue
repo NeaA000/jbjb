@@ -12,6 +12,7 @@
             v-if="videoUrl"
             :videoUrl="videoUrl"
             :courseId="courseId"
+            :userId="userId"
             :currentLanguage="currentLanguage"
             @progress="handleProgress"
             @shake-detected="handleShakeDetected"
@@ -141,6 +142,7 @@ const props = defineProps({
 const isLoading = ref(true)
 const course = ref(null)
 const courseId = computed(() => props.id)
+const userId = computed(() => authStore.user?.uid || 'guest') // userId 추가
 const currentLanguage = ref('ko')
 const videoUrl = ref('')
 const progress = ref(0)
@@ -224,10 +226,18 @@ const changeLanguage = (lang) => {
 // 진행률 로드
 const loadProgress = async () => {
   try {
-    // TODO: Firebase에서 진행률 가져오기
-    const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
-    if (savedProgress) {
-      progress.value = parseInt(savedProgress) || 0
+    // Firebase에서 진행률 가져오기
+    if (authStore.user) {
+      const savedProgress = await CourseService.getProgress(courseId.value, authStore.user.uid)
+      if (savedProgress) {
+        progress.value = savedProgress
+      }
+    } else {
+      // 로그인하지 않은 경우 로컬 스토리지 사용
+      const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
+      if (savedProgress) {
+        progress.value = parseInt(savedProgress) || 0
+      }
     }
   } catch (error) {
     console.error('진행률 로드 실패:', error)
@@ -451,7 +461,7 @@ onMounted(() => {
 
 .progress-bar {
   height: 12px;
-  background: var(--bg-tertiary);
+  background: #e5e7eb; /* 명확한 회색 배경 */
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 0.5rem;
@@ -459,8 +469,8 @@ onMounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: var(--primary);
-  transition: width 0.3s;
+  background: #10b981; /* 명확한 초록색 */
+  transition: width 0.3s ease;
 }
 
 .progress-text {

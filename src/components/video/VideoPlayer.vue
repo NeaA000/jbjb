@@ -1,411 +1,1029 @@
 <template>
-  <div class="video-player-wrapper">
-    <!-- 비디오 컨테이너 -->
-    <div class="video-container">
+  <div class="video-player-container">
+    <!-- 비디오 로딩 스켈레톤 -->
+    <div v-if="isInitialLoading" class="video-skeleton">
+      <div class="skeleton-video"></div>
+      <div class="skeleton-controls">
+        <div class="skeleton-progress"></div>
+        <div class="skeleton-buttons"></div>
+      </div>
+    </div>
+
+    <!-- 비디오 플레이어 -->
+    <div v-else class="video-wrapper" :class="{ 'fullscreen': isFullscreen }">
+      <!-- 썸네일 프리뷰 (초기 로딩 최적화) -->
+      <div v-if="!isVideoReady && thumbnailUrl" class="video-thumbnail" @click="loadVideo">
+        <img :src="thumbnailUrl" :alt="title" />
+        <div class="play-overlay">
+          <div class="play-button">
+            <Play :size="48" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 실제 비디오 엘리먼트 -->
       <video
-          ref="videoPlayer"
-          class="video-js vjs-theme-forest vjs-big-play-centered"
-          controls
-          preload="auto"
-          :poster="poster"
+          v-show="isVideoReady"
+          ref="videoElement"
+          class="video-player"
+          :poster="thumbnailUrl"
+          preload="metadata"
+          playsinline
+          @loadstart="onLoadStart"
+          @loadedmetadata="onLoadedMetadata"
+          @loadeddata="onLoadedData"
+          @canplay="onCanPlay"
+          @play="onPlay"
+          @pause="onPause"
+          @timeupdate="onTimeUpdate"
+          @ended="onEnded"
+          @error="onError"
+          @waiting="onWaiting"
+          @playing="onPlaying"
       >
         <source :src="videoUrl" type="video/mp4" />
-        <p class="vjs-no-js">
-          동영상을 재생하려면 JavaScript를 활성화해주세요.
-        </p>
+        <p>브라우저가 비디오 재생을 지원하지 않습니다.</p>
       </video>
-    </div>
 
-    <!-- 진행 상태 표시 -->
-    <div class="video-controls">
-      <div class="progress-info">
-        <div class="progress-text">
-          <span>진행률: {{ progressPercentage }}%</span>
-          <span>{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
+      <!-- 버퍼링 인디케이터 -->
+      <div v-if="isBuffering" class="buffering-overlay">
+        <div class="buffering-spinner"></div>
+        <p>버퍼링 중...</p>
+      </div>
+
+      <!-- 커스텀 컨트롤 -->
+      <div
+          class="video-controls"
+          :class="{ 'visible': showControls }"
+          @mouseenter="showControls = true"
+          @mouseleave="hideControlsDelayed"
+      >
+        <!-- 진도 바 -->
+        <div class="progress-container" @click="seek">
+          <div class="progress-bar">
+            <div class="progress-buffered" :style="{ width: bufferedPercent + '%' }"></div>
+            <div class="progress-played" :style="{ width: progressPercent + '%' }"></div>
+            <div
+                class="progress-thumb"
+                :style="{ left: progressPercent + '%' }"
+                @mousedown="startDragging"
+            ></div>
+          </div>
+          <div class="time-tooltip" :style="{ left: tooltipPosition + '%' }">
+            {{ formatTime(tooltipTime) }}
+          </div>
         </div>
-        <el-progress
-            :percentage="progressPercentage"
-            :color="progressColor"
-            :stroke-width="8"
-        />
+
+        <!-- 컨트롤 버튼들 -->
+        <div class="control-buttons">
+          <div class="controls-left">
+            <!-- 재생/일시정지 -->
+            <button @click="togglePlay" class="control-btn">
+              <component :is="isPlaying ? Pause : Play" :size="20" />
+            </button>
+
+            <!-- 볼륨 조절 -->
+            <div class="volume-control">
+              <button @click="toggleMute" class="control-btn">
+                <component :is="volumeIcon" :size="20" />
+              </button>
+              <div class="volume-slider">
+                <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    v-model="volume"
+                    @input="changeVolume"
+                />
+              </div>
+            </div>
+
+            <!-- 시간 표시 -->
+            <div class="time-display">
+              {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+            </div>
+          </div>
+
+          <div class="controls-right">
+            <!-- 재생 속도 -->
+            <div class="speed-control">
+              <button @click="showSpeedMenu = !showSpeedMenu" class="control-btn">
+                {{ playbackRate }}x
+              </button>
+              <div v-if="showSpeedMenu" class="speed-menu">
+                <button
+                    v-for="speed in playbackSpeeds"
+                    :key="speed"
+                    @click="changeSpeed(speed)"
+                    :class="{ active: playbackRate === speed }"
+                >
+                  {{ speed }}x
+                </button>
+              </div>
+            </div>
+
+            <!-- 화질 선택 -->
+            <div v-if="qualities.length > 1" class="quality-control">
+              <button @click="showQualityMenu = !showQualityMenu" class="control-btn">
+                <Settings :size="20" />
+              </button>
+              <div v-if="showQualityMenu" class="quality-menu">
+                <button
+                    v-for="quality in qualities"
+                    :key="quality.value"
+                    @click="changeQuality(quality.value)"
+                    :class="{ active: currentQuality === quality.value }"
+                >
+                  {{ quality.label }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 전체화면 -->
+            <button @click="toggleFullscreen" class="control-btn">
+              <component :is="isFullscreen ? Minimize : Maximize" :size="20" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      <!-- 추가 컨트롤 -->
-      <div class="additional-controls">
-        <el-button-group>
-          <el-button @click="togglePlayback" :icon="isPlaying ? 'Pause' : 'CaretRight'">
-            {{ isPlaying ? '일시정지' : '재생' }}
-          </el-button>
-          <el-button @click="skipBackward" icon="DArrowLeft">
-            10초 뒤로
-          </el-button>
-          <el-button @click="skipForward" icon="DArrowRight">
-            10초 앞으로
-          </el-button>
-        </el-button-group>
-      </div>
+      <!-- 키보드 단축키 안내 -->
+      <Transition name="fade">
+        <div v-if="showKeyboardHint" class="keyboard-hint">
+          <div class="hint-content">
+            <h4>키보드 단축키</h4>
+            <div class="hint-grid">
+              <div><kbd>Space</kbd> 재생/일시정지</div>
+              <div><kbd>←/→</kbd> 10초 앞/뒤로</div>
+              <div><kbd>↑/↓</kbd> 볼륨 조절</div>
+              <div><kbd>F</kbd> 전체화면</div>
+              <div><kbd>M</kbd> 음소거</div>
+              <div><kbd>1-9</kbd> 구간 이동</div>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
-
-    <!-- 완료 알림 -->
-    <el-dialog
-        v-model="showCompletionDialog"
-        title="수강 완료"
-        width="30%"
-        center
-    >
-      <div class="completion-content">
-        <el-icon class="completion-icon" :size="64" color="#67c23a">
-          <SuccessFilled />
-        </el-icon>
-        <p>축하합니다! 강의를 완료하셨습니다.</p>
-      </div>
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button type="primary" @click="handleCompletion">
-            확인
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { SuccessFilled } from '@element-plus/icons-vue'
-import videojs from 'video.js'
-import 'video.js/dist/video-js.css'
-import '@videojs/themes/dist/forest/index.css'
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/services/firebase'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import {
+  Play, Pause, Volume2, VolumeX, Volume1,
+  Settings, Maximize, Minimize, SkipBack, SkipForward
+} from 'lucide-vue-next'
 
+// Props
 const props = defineProps({
   videoUrl: {
     type: String,
     required: true
   },
-  courseId: {
-    type: String,
-    required: true
-  },
-  userId: {
-    type: String,
-    required: true
-  },
-  poster: {
+  thumbnailUrl: {
     type: String,
     default: ''
+  },
+  title: {
+    type: String,
+    default: ''
+  },
+  courseId: {
+    type: String,
+    default: ''
+  },
+  episodeId: {
+    type: String,
+    default: ''
+  },
+  onProgress: {
+    type: Function,
+    default: null
   }
 })
 
-const emit = defineEmits(['completed', 'error', 'progress'])
+// Emit
+const emit = defineEmits(['ready', 'play', 'pause', 'ended', 'progress', 'error'])
 
-// Video.js 인스턴스
-const videoPlayer = ref(null)
-const player = ref(null)
+// Refs
+const videoElement = ref(null)
 
-// 상태 관리
+// 상태
+const isInitialLoading = ref(true)
+const isVideoReady = ref(false)
+const isPlaying = ref(false)
+const isBuffering = ref(false)
+const isFullscreen = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
-const isPlaying = ref(false)
-const isCompleted = ref(false)
-const showCompletionDialog = ref(false)
-const lastSaveTime = ref(0)
+const volume = ref(100)
+const isMuted = ref(false)
+const playbackRate = ref(1)
+const bufferedPercent = ref(0)
+const showControls = ref(true)
+const showSpeedMenu = ref(false)
+const showQualityMenu = ref(false)
+const showKeyboardHint = ref(false)
+const isDragging = ref(false)
+const tooltipTime = ref(0)
+const tooltipPosition = ref(0)
+const currentQuality = ref('auto')
+const lastSavedTime = ref(0)
+
+// 설정값
+const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+const qualities = ref([
+  { value: 'auto', label: '자동' },
+  { value: '1080p', label: '1080p' },
+  { value: '720p', label: '720p' },
+  { value: '480p', label: '480p' }
+])
+
+// 타이머
+let controlsTimer = null
+let progressTimer = null
 
 // 계산된 속성
-const progressPercentage = computed(() => {
-  if (duration.value === 0) return 0
-  return Math.round((currentTime.value / duration.value) * 100)
+const progressPercent = computed(() => {
+  return duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0
 })
 
-const progressColor = computed(() => {
-  if (progressPercentage.value < 30) return '#f56c6c'
-  if (progressPercentage.value < 70) return '#e6a23c'
-  return '#67c23a'
+const volumeIcon = computed(() => {
+  if (isMuted.value || volume.value === 0) return VolumeX
+  if (volume.value < 50) return Volume1
+  return Volume2
 })
 
-// 시간 포맷팅
-const formatTime = (seconds) => {
-  if (!seconds || isNaN(seconds)) return '0:00'
-
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-// Video.js 초기화
-const initializePlayer = () => {
-  const options = {
-    autoplay: false,
-    controls: true,
-    responsive: true,
-    fluid: true,
-    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-    controlBar: {
-      playToggle: true,
-      volumePanel: {
-        inline: false
-      },
-      currentTimeDisplay: true,
-      timeDivider: true,
-      durationDisplay: true,
-      progressControl: true,
-      remainingTimeDisplay: false,
-      playbackRateMenuButton: {
-        playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2]
-      },
-      fullscreenToggle: true
-    }
-  }
-
-  player.value = videojs(videoPlayer.value, options)
-
-  // 이벤트 리스너 설정
-  player.value.on('loadedmetadata', onLoadedMetadata)
-  player.value.on('timeupdate', onTimeUpdate)
-  player.value.on('play', () => { isPlaying.value = true })
-  player.value.on('pause', () => { isPlaying.value = false })
-  player.value.on('ended', onVideoEnded)
-  player.value.on('error', onVideoError)
-
-  // 10초마다 진행도 저장
-  setInterval(saveProgress, 10000)
-}
-
-// 메타데이터 로드 완료
-const onLoadedMetadata = async () => {
-  duration.value = player.value.duration()
-
-  // 이전 진행도 불러오기
-  await loadProgress()
-}
-
-// 시간 업데이트
-const onTimeUpdate = () => {
-  currentTime.value = player.value.currentTime()
-  emit('progress', progressPercentage.value)
-}
-
-// 비디오 종료
-const onVideoEnded = () => {
-  isCompleted.value = true
-  showCompletionDialog.value = true
-  saveProgress(true)
-}
-
-// 비디오 에러
-const onVideoError = (error) => {
-  console.error('Video error:', error)
-  ElMessage.error('비디오 재생 중 오류가 발생했습니다')
-  emit('error', error)
-}
-
-// 진행도 저장
-const saveProgress = async (completed = false) => {
-  if (!props.userId || !props.courseId) return
-
-  const now = Date.now()
-  // 10초 이내에 저장한 경우 스킵 (완료 시 제외)
-  if (!completed && now - lastSaveTime.value < 10000) return
-
-  lastSaveTime.value = now
-
-  try {
-    const progressData = {
-      userId: props.userId,
-      courseId: props.courseId,
-      currentTime: currentTime.value,
-      duration: duration.value,
-      percentage: progressPercentage.value,
-      completed: completed || isCompleted.value,
-      lastUpdated: serverTimestamp()
-    }
-
-    await setDoc(
-        doc(db, 'progress', `${props.userId}_${props.courseId}`),
-        progressData,
-        { merge: true }
-    )
-
-    if (completed) {
-      await setDoc(
-          doc(db, 'certificates', `${props.userId}_${props.courseId}`),
-          {
-            userId: props.userId,
-            courseId: props.courseId,
-            completedAt: serverTimestamp(),
-            certificateNumber: generateCertificateNumber()
-          }
-      )
-    }
-  } catch (error) {
-    console.error('Progress save error:', error)
+// 메서드
+const loadVideo = () => {
+  isVideoReady.value = true
+  if (videoElement.value) {
+    videoElement.value.load()
   }
 }
 
-// 진행도 불러오기
-const loadProgress = async () => {
-  if (!props.userId || !props.courseId) return
+const togglePlay = () => {
+  if (!videoElement.value) return
 
-  try {
-    const docRef = doc(db, 'progress', `${props.userId}_${props.courseId}`)
-    const docSnap = await getDoc(docRef)
-
-    if (docSnap.exists()) {
-      const data = docSnap.data()
-      if (data.currentTime && !data.completed) {
-        player.value.currentTime(data.currentTime)
-        ElMessage.info(`이전 시청 위치(${formatTime(data.currentTime)})부터 재생합니다`)
-      }
-      isCompleted.value = data.completed || false
-    }
-  } catch (error) {
-    console.error('Progress load error:', error)
+  if (isPlaying.value) {
+    videoElement.value.pause()
+  } else {
+    videoElement.value.play()
   }
 }
 
-// 재생/일시정지 토글
-const togglePlayback = () => {
-  if (player.value) {
+const seek = (event) => {
+  if (!videoElement.value || !duration.value) return
+
+  const rect = event.currentTarget.getBoundingClientRect()
+  const percent = (event.clientX - rect.left) / rect.width
+  const time = percent * duration.value
+
+  videoElement.value.currentTime = time
+}
+
+const startDragging = (event) => {
+  isDragging.value = true
+  document.addEventListener('mousemove', handleDragging)
+  document.addEventListener('mouseup', stopDragging)
+}
+
+const handleDragging = (event) => {
+  if (!isDragging.value || !videoElement.value || !duration.value) return
+
+  const progressBar = document.querySelector('.progress-container')
+  const rect = progressBar.getBoundingClientRect()
+  const percent = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  const time = percent * duration.value
+
+  videoElement.value.currentTime = time
+}
+
+const stopDragging = () => {
+  isDragging.value = false
+  document.removeEventListener('mousemove', handleDragging)
+  document.removeEventListener('mouseup', stopDragging)
+}
+
+const toggleMute = () => {
+  if (!videoElement.value) return
+
+  isMuted.value = !isMuted.value
+  videoElement.value.muted = isMuted.value
+}
+
+const changeVolume = () => {
+  if (!videoElement.value) return
+
+  videoElement.value.volume = volume.value / 100
+  isMuted.value = volume.value === 0
+
+  // 볼륨 설정 저장
+  localStorage.setItem('videoPlayerVolume', volume.value)
+}
+
+const changeSpeed = (speed) => {
+  if (!videoElement.value) return
+
+  playbackRate.value = speed
+  videoElement.value.playbackRate = speed
+  showSpeedMenu.value = false
+
+  // 속도 설정 저장
+  localStorage.setItem('videoPlayerSpeed', speed)
+}
+
+const changeQuality = (quality) => {
+  currentQuality.value = quality
+  showQualityMenu.value = false
+
+  // 화질 변경 로직 (서버 지원 필요)
+  console.log('화질 변경:', quality)
+}
+
+const toggleFullscreen = () => {
+  if (!isFullscreen.value) {
+    const container = document.querySelector('.video-wrapper')
+    if (container.requestFullscreen) {
+      container.requestFullscreen()
+    } else if (container.webkitRequestFullscreen) {
+      container.webkitRequestFullscreen()
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen()
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen()
+    }
+  }
+}
+
+const hideControlsDelayed = () => {
+  clearTimeout(controlsTimer)
+  controlsTimer = setTimeout(() => {
     if (isPlaying.value) {
-      player.value.pause()
-    } else {
-      player.value.play()
+      showControls.value = false
+    }
+  }, 3000)
+}
+
+const formatTime = (seconds) => {
+  if (!seconds || isNaN(seconds)) return '00:00'
+
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`
+}
+
+// 이벤트 핸들러
+const onLoadStart = () => {
+  isInitialLoading.value = false
+  isBuffering.value = true
+}
+
+const onLoadedMetadata = () => {
+  duration.value = videoElement.value.duration
+
+  // 저장된 재생 위치 복원
+  const savedPosition = localStorage.getItem(`videoPosition_${props.courseId}_${props.episodeId}`)
+  if (savedPosition) {
+    const position = parseFloat(savedPosition)
+    if (position > 0 && position < duration.value - 10) {
+      videoElement.value.currentTime = position
     }
   }
 }
 
-// 10초 뒤로
-const skipBackward = () => {
-  if (player.value) {
-    const newTime = Math.max(0, currentTime.value - 10)
-    player.value.currentTime(newTime)
+const onLoadedData = () => {
+  emit('ready')
+}
+
+const onCanPlay = () => {
+  isBuffering.value = false
+}
+
+const onPlay = () => {
+  isPlaying.value = true
+  emit('play')
+  hideControlsDelayed()
+}
+
+const onPause = () => {
+  isPlaying.value = false
+  showControls.value = true
+  emit('pause')
+}
+
+const onTimeUpdate = () => {
+  if (!videoElement.value) return
+
+  currentTime.value = videoElement.value.currentTime
+
+  // 버퍼링 상태 업데이트
+  if (videoElement.value.buffered.length > 0) {
+    const bufferedEnd = videoElement.value.buffered.end(videoElement.value.buffered.length - 1)
+    bufferedPercent.value = (bufferedEnd / duration.value) * 100
+  }
+
+  // 10초마다 진도 저장
+  if (currentTime.value - lastSavedTime.value > 10) {
+    saveProgress()
+    lastSavedTime.value = currentTime.value
   }
 }
 
-// 10초 앞으로
-const skipForward = () => {
-  if (player.value) {
-    const newTime = Math.min(duration.value, currentTime.value + 10)
-    player.value.currentTime(newTime)
+const onEnded = () => {
+  isPlaying.value = false
+  showControls.value = true
+  emit('ended')
+
+  // 완료 상태 저장
+  if (props.onProgress) {
+    props.onProgress(100)
   }
 }
 
-// 완료 처리
-const handleCompletion = () => {
-  showCompletionDialog.value = false
-  emit('completed')
+const onError = (event) => {
+  console.error('비디오 재생 오류:', event)
+  emit('error', event)
+  isBuffering.value = false
 }
 
-// 수료증 번호 생성
-const generateCertificateNumber = () => {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
-  return `CERT-${year}${month}${day}-${random}`
+const onWaiting = () => {
+  isBuffering.value = true
 }
 
-// 생명주기
+const onPlaying = () => {
+  isBuffering.value = false
+}
+
+// 진도 저장
+const saveProgress = () => {
+  if (!duration.value) return
+
+  const progress = Math.floor((currentTime.value / duration.value) * 100)
+
+  // 로컬 스토리지에 저장
+  localStorage.setItem(
+      `videoPosition_${props.courseId}_${props.episodeId}`,
+      currentTime.value.toString()
+  )
+
+  // 진도 콜백 호출
+  if (props.onProgress) {
+    props.onProgress(progress)
+  }
+
+  emit('progress', { currentTime: currentTime.value, duration: duration.value, progress })
+}
+
+// 키보드 단축키
+const handleKeyboard = (event) => {
+  if (!videoElement.value) return
+
+  switch (event.key) {
+    case ' ':
+    case 'Spacebar':
+      event.preventDefault()
+      togglePlay()
+      break
+    case 'ArrowLeft':
+      event.preventDefault()
+      videoElement.value.currentTime = Math.max(0, currentTime.value - 10)
+      break
+    case 'ArrowRight':
+      event.preventDefault()
+      videoElement.value.currentTime = Math.min(duration.value, currentTime.value + 10)
+      break
+    case 'ArrowUp':
+      event.preventDefault()
+      volume.value = Math.min(100, volume.value + 10)
+      changeVolume()
+      break
+    case 'ArrowDown':
+      event.preventDefault()
+      volume.value = Math.max(0, volume.value - 10)
+      changeVolume()
+      break
+    case 'f':
+    case 'F':
+      event.preventDefault()
+      toggleFullscreen()
+      break
+    case 'm':
+    case 'M':
+      event.preventDefault()
+      toggleMute()
+      break
+    case '?':
+      showKeyboardHint.value = !showKeyboardHint.value
+      break
+    default:
+      // 숫자 키로 구간 이동 (1-9)
+      if (event.key >= '1' && event.key <= '9') {
+        const percent = parseInt(event.key) * 10
+        videoElement.value.currentTime = (duration.value * percent) / 100
+      }
+  }
+}
+
+// 전체화면 변경 감지
+const handleFullscreenChange = () => {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
+// 저장된 설정 복원
+const restoreSettings = () => {
+  const savedVolume = localStorage.getItem('videoPlayerVolume')
+  if (savedVolume) {
+    volume.value = parseFloat(savedVolume)
+  }
+
+  const savedSpeed = localStorage.getItem('videoPlayerSpeed')
+  if (savedSpeed) {
+    playbackRate.value = parseFloat(savedSpeed)
+  }
+}
+
+// 마운트
 onMounted(() => {
-  if (videoPlayer.value) {
-    initializePlayer()
-  }
+  restoreSettings()
+
+  // 이벤트 리스너 등록
+  document.addEventListener('keydown', handleKeyboard)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+
+  // 주기적 진도 저장
+  progressTimer = setInterval(saveProgress, 30000) // 30초마다
 })
 
+// 언마운트
 onUnmounted(() => {
-  if (player.value) {
-    saveProgress()
-    player.value.dispose()
-  }
+  // 마지막 진도 저장
+  saveProgress()
+
+  // 이벤트 리스너 제거
+  document.removeEventListener('keydown', handleKeyboard)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+
+  // 타이머 정리
+  clearTimeout(controlsTimer)
+  clearInterval(progressTimer)
 })
 
 // 비디오 URL 변경 감지
 watch(() => props.videoUrl, (newUrl) => {
-  if (player.value && newUrl) {
-    player.value.src({ type: 'video/mp4', src: newUrl })
+  if (newUrl && videoElement.value) {
+    videoElement.value.src = newUrl
+    videoElement.value.load()
   }
 })
 </script>
 
 <style scoped>
-.video-player-wrapper {
+/* =================== 컨테이너 =================== */
+.video-player-container {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  background: #000;
+  position: relative;
 }
 
-.video-container {
+/* =================== 스켈레톤 로딩 =================== */
+.video-skeleton {
   width: 100%;
-  margin-bottom: 20px;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.video-js {
-  width: 100%;
-  height: auto;
   aspect-ratio: 16/9;
+  background: var(--bg-secondary);
+  position: relative;
+  overflow: hidden;
 }
 
+.skeleton-video {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-tertiary);
+  animation: skeleton-pulse 1.5s infinite;
+}
+
+.skeleton-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.skeleton-progress {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  margin-bottom: var(--space-3);
+}
+
+.skeleton-buttons {
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* =================== 비디오 래퍼 =================== */
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.video-wrapper.fullscreen {
+  aspect-ratio: auto;
+  height: 100vh;
+}
+
+/* =================== 썸네일 프리뷰 =================== */
+.video-thumbnail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.video-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.play-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  transition: background 0.3s ease;
+}
+
+.video-thumbnail:hover .play-overlay {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.play-button {
+  width: 80px;
+  height: 80px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+}
+
+.video-thumbnail:hover .play-button {
+  transform: scale(1.1);
+}
+
+/* =================== 비디오 플레이어 =================== */
+.video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* =================== 버퍼링 오버레이 =================== */
+.buffering-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  pointer-events: none;
+}
+
+.buffering-spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: var(--space-3);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =================== 비디오 컨트롤 =================== */
 .video-controls {
-  background: #f5f5f5;
-  border-radius: 12px;
-  padding: 20px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  cursor: default;
 }
 
-.progress-info {
-  margin-bottom: 20px;
+.video-controls.visible {
+  opacity: 1;
 }
 
-.progress-text {
+/* =================== 진도 바 =================== */
+.progress-container {
+  position: relative;
+  height: 40px;
+  margin-bottom: var(--space-2);
+  cursor: pointer;
+}
+
+.progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  transition: height 0.2s ease;
+}
+
+.progress-container:hover .progress-bar {
+  height: 8px;
+}
+
+.progress-buffered {
+  position: absolute;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+}
+
+.progress-played {
+  position: absolute;
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+}
+
+.progress-thumb {
+  position: absolute;
+  bottom: -6px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  cursor: grab;
+}
+
+.progress-container:hover .progress-thumb {
+  opacity: 1;
+}
+
+.progress-thumb:active {
+  cursor: grabbing;
+  transform: translateX(-50%) scale(1.2);
+}
+
+.time-tooltip {
+  position: absolute;
+  bottom: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.progress-container:hover .time-tooltip {
+  opacity: 1;
+}
+
+/* =================== 컨트롤 버튼 =================== */
+.control-buttons {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 10px;
-  font-size: 14px;
-  color: #666;
+  align-items: center;
 }
 
-.additional-controls {
+.controls-left,
+.controls-right {
   display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.control-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background 0.2s ease;
 }
 
-.completion-content {
-  text-align: center;
-  padding: 20px;
+.control-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.completion-icon {
-  margin-bottom: 20px;
+/* =================== 볼륨 컨트롤 =================== */
+.volume-control {
+  display: flex;
+  align-items: center;
 }
 
-/* 모바일 대응 */
+.volume-slider {
+  width: 0;
+  overflow: hidden;
+  transition: width 0.3s ease;
+  margin-left: var(--space-2);
+}
+
+.volume-control:hover .volume-slider {
+  width: 100px;
+}
+
+.volume-slider input[type="range"] {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+.volume-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: white;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* =================== 시간 표시 =================== */
+.time-display {
+  color: white;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* =================== 속도/화질 메뉴 =================== */
+.speed-control,
+.quality-control {
+  position: relative;
+}
+
+.speed-menu,
+.quality-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  background: rgba(0, 0, 0, 0.9);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  min-width: 120px;
+}
+
+.speed-menu button,
+.quality-menu button {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: white;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s ease;
+}
+
+.speed-menu button:hover,
+.quality-menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.speed-menu button.active,
+.quality-menu button.active {
+  background: var(--accent-primary);
+}
+
+/* =================== 키보드 힌트 =================== */
+.keyboard-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  max-width: 500px;
+  width: 90%;
+}
+
+.hint-content h4 {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-lg);
+}
+
+.hint-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.hint-grid kbd {
+  background: rgba(255, 255, 255, 0.2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  margin-right: var(--space-2);
+}
+
+/* =================== 애니메이션 =================== */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* =================== 반응형 =================== */
 @media (max-width: 768px) {
-  .video-player-wrapper {
-    padding: 10px;
+  .control-btn {
+    width: 36px;
+    height: 36px;
   }
 
-  .video-container {
-    border-radius: 8px;
+  .controls-left,
+  .controls-right {
+    gap: var(--space-2);
   }
 
-  .video-controls {
-    padding: 15px;
+  .time-display {
+    display: none;
   }
 
-  .additional-controls :deep(.el-button) {
-    padding: 8px 12px;
-    font-size: 12px;
+  .volume-control:hover .volume-slider {
+    width: 80px;
+  }
+
+  .keyboard-hint {
+    display: none;
+  }
+}
+
+/* =================== 접근성 =================== */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 </style>

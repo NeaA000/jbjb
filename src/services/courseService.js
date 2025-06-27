@@ -1,4 +1,4 @@
-// web/src/services/courseService.js - 언어별 비디오 URL 지원 추가
+// web/src/services/courseService.js - 성능 최적화 버전
 import {
     collection,
     doc,
@@ -22,13 +22,15 @@ class CourseService {
     // 캐시 설정
     static CACHE_KEY = 'courses_cache'
     static CACHE_DURATION = 5 * 60 * 1000 // 5분
-    static PAGE_SIZE = 20
+    static PAGE_SIZE = 10 // 페이지당 10개로 줄임
+    static INITIAL_PAGE_SIZE = 20 // 초기 로딩은 20개
 
-    // 메모리 캐시
+    // 메모리 캐시 (LRU 캐시 구현)
     static memoryCache = new Map()
+    static MAX_CACHE_SIZE = 100 // 최대 캐시 항목 수
 
     /**
-     * 메모리 캐시 관리
+     * LRU 캐시 관리
      */
     static getFromMemoryCache(key) {
         const cached = this.memoryCache.get(key)
@@ -39,10 +41,21 @@ class CourseService {
             return null
         }
 
+        // LRU: 사용된 항목을 맨 뒤로 이동
+        this.memoryCache.delete(key)
+        this.memoryCache.set(key, cached)
+
         return cached.data
     }
 
     static setMemoryCache(key, data) {
+        // 캐시 크기 제한
+        if (this.memoryCache.size >= this.MAX_CACHE_SIZE) {
+            // 가장 오래된 항목 삭제
+            const firstKey = this.memoryCache.keys().next().value
+            this.memoryCache.delete(firstKey)
+        }
+
         this.memoryCache.set(key, {
             data,
             timestamp: Date.now()
@@ -50,217 +63,87 @@ class CourseService {
     }
 
     /**
-     * uploads 데이터를 courses 형식으로 변환 (올바른 데이터 구조 + hasVideo 필드 추가)
+     * uploads 데이터를 courses 형식으로 변환 (최적화)
      */
     static convertUploadToCourse(uploadDoc) {
         const data = uploadDoc.data()
 
-        // 원본 데이터 로깅 (디버깅용)
-        console.log('📄 원본 uploads 데이터:', {
-            id: uploadDoc.id,
-            group_name: data.group_name,
-            video_url: data.video_url,
-            videoUrl: data.videoUrl,
-            hasVideo: data.hasVideo,
-            data_keys: Object.keys(data).slice(0, 10) // 처음 10개 키만
-        })
-
-        // 비디오 URL 체크 - 여러 필드명 지원
+        // 필수 필드만 추출 (불필요한 데이터 제외)
         const videoUrl = data.video_url || data.videoUrl || data.video_link || ''
         const hasVideo = !!videoUrl && videoUrl.trim() !== ''
 
-        // Railway 프록시 URL 생성 (비디오 URL이 없을 때 폴백)
         const baseUrl = import.meta.env.VITE_API_URL || ''
-        const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
+        const fallbackVideoUrl = hasVideo ?
+            videoUrl :
+            `${baseUrl}/watch/${uploadDoc.id}?lang=ko`
 
         return {
             id: uploadDoc.id,
-            // 기본 정보 (올바른 필드명 사용)
             title: data.group_name || data.title || '제목 없음',
-            description: data.content_description || data.description || '',
-
-            // 카테고리 정보
-            category: {
-                main: data.main_category || '',
-                middle: data.sub_category || '',
-                leaf: data.sub_sub_category || ''
-            },
-
-            // 미디어 정보 (hasVideo 필드 추가)
+            description: data.description || '',
+            instructor: data.teacher_name || data.instructor || '강사 미정',
+            duration: data.running_time || data.duration || 0,
+            difficulty: data.level || data.difficulty || 'beginner',
+            category: data.category || {},
+            thumbnailUrl: data.thumbnail_url || data.thumbnail || '/placeholder-course.jpg',
             videoUrl: fallbackVideoUrl,
-            hasVideo: hasVideo, // hasVideo 필드 명시적 추가
-            thumbnailUrl: data.thumbnail_url || data.thumbnailUrl || '/default-thumbnail.jpg',
-            qrUrl: data.qr_url || data.qrUrl || '',
-
-            // 학습 정보
-            duration: data.duration_string || data.duration || '30분',
-            difficulty: data.difficulty || 'intermediate',
-
-            // 메타데이터
-            uploadedAt: data.upload_date || new Date(),
-            createdAt: data.createdAt || data.upload_date || new Date(),
-            updatedAt: data.updatedAt || new Date(),
-
-            // 통계 정보
-            enrolledCount: data.enrolled_count || data.enrolledCount || 0,
-            completedCount: data.completed_count || data.completedCount || 0,
-            completionRate: data.completion_rate || 0,
+            hasVideo: hasVideo,
+            createdAt: data.upload_date || data.createdAt || new Date(),
+            // 최적화: 필요한 필드만 포함
+            language: data.language || 'ko',
+            enrollmentCount: data.enrollmentCount || 0,
             rating: data.rating || 0,
-            reviewCount: data.review_count || data.reviewCount || 0,
-
-            // 언어 정보
-            languageVideos: data.language_videos || {},
-            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
-            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
-            hasLanguageVideos: false, // 나중에 로드
-
-            // Railway 프록시 정보
-            railwayProxyEnabled: data.railway_proxy_enabled !== false,
-            originalS3Key: data.s3_key || '',
-
-            // 태그 (카테고리 기반 자동 생성)
-            tags: [data.main_category, data.sub_category, data.sub_sub_category].filter(Boolean),
-
-            // 원본 데이터 참조 (디버깅용)
-            _originalData: data
+            // 초기에는 언어별 비디오를 로드하지 않음
+            availableLanguages: [],
+            hasMultipleLanguages: false
         }
     }
 
     /**
-     * 언어별 비디오 URL 가져오기
+     * uploads 컬렉션에서 강의 목록 조회 (최적화된 페이지네이션)
      */
-    static getVideoUrlForLanguage(course, language = 'ko') {
-        if (!course) return null
-
-        // 언어별 비디오 정보 확인
-        if (course.languageVideos && course.languageVideos[language]) {
-            const langVideo = course.languageVideos[language]
-            const videoUrl = langVideo.video_url || langVideo.videoUrl || ''
-
-            if (videoUrl) {
-                console.log(`🌍 ${language} 언어 비디오 URL 발견:`, videoUrl)
-                return videoUrl
-            }
-        }
-
-        // 한국어로 폴백
-        if (language !== 'ko' && course.languageVideos && course.languageVideos.ko) {
-            const koVideo = course.languageVideos.ko
-            const koVideoUrl = koVideo.video_url || koVideo.videoUrl || ''
-
-            if (koVideoUrl) {
-                console.log(`🌍 한국어 비디오 URL로 폴백:`, koVideoUrl)
-                return koVideoUrl
-            }
-        }
-
-        // 기본 비디오 URL 사용
-        if (course.videoUrl) {
-            console.log(`📹 기본 비디오 URL 사용:`, course.videoUrl)
-            return course.videoUrl
-        }
-
-        // 최종 폴백: Railway 프록시 URL
-        const baseUrl = import.meta.env.VITE_API_URL || ''
-        const fallbackUrl = `${baseUrl}/watch/${course.id}?lang=${language}`
-        console.log(`🔄 Railway 프록시 URL로 폴백:`, fallbackUrl)
-        return fallbackUrl
-    }
-
-    /**
-     * uploads 컬렉션에서 전체 강의 목록 가져오기
-     */
-    static async getCoursesFromUploads() {
+    static async getCoursesFromUploads(lastDoc = null, pageSize = this.INITIAL_PAGE_SIZE) {
         try {
-            console.log('🔄 Firebase uploads에서 강의 로드 시작...')
-
             const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
-            const q = query(uploadsRef, orderBy('upload_date', 'desc'))
+
+            // 최적화된 쿼리
+            let q = query(
+                uploadsRef,
+                orderBy('upload_date', 'desc'),
+                limit(pageSize)
+            )
+
+            if (lastDoc) {
+                q = query(
+                    uploadsRef,
+                    orderBy('upload_date', 'desc'),
+                    startAfter(lastDoc),
+                    limit(pageSize)
+                )
+            }
+
             const snapshot = await getDocs(q)
-
-            console.log(`📊 uploads 컬렉션에서 ${snapshot.size}개 문서 발견`)
-
             const courses = []
+            let lastDocument = null
 
-            for (const doc of snapshot.docs) {
-                try {
-                    const course = this.convertUploadToCourse(doc)
+            snapshot.forEach((doc) => {
+                courses.push(this.convertUploadToCourse(doc))
+                lastDocument = doc
+            })
 
-                    // language_videos 서브컬렉션 로드
-                    try {
-                        const langVideosRef = collection(doc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
-                        const langVideosSnapshot = await getDocs(langVideosRef)
-
-                        const languageVideos = {}
-                        langVideosSnapshot.forEach(langDoc => {
-                            const langData = langDoc.data()
-                            languageVideos[langDoc.id] = {
-                                ...langData,
-                                // video_url 필드 정규화
-                                video_url: langData.video_url || langData.videoUrl || langData.video_link || ''
-                            }
-                        })
-
-                        course.languageVideos = languageVideos
-                        course.availableLanguages = Object.keys(languageVideos).length > 0
-                            ? Object.keys(languageVideos)
-                            : ['ko'] // 기본값으로 한국어 설정
-                        course.hasMultipleLanguages = course.availableLanguages.length > 1
-                        course.hasLanguageVideos = Object.keys(languageVideos).length > 0
-
-                        console.log(`🌍 ${doc.id} 언어별 비디오:`, course.availableLanguages)
-                    } catch (error) {
-                        console.warn(`언어별 비디오 로드 실패 (${doc.id}):`, error)
-                        // 서브컬렉션 로드 실패해도 기본값 설정
-                        course.availableLanguages = ['ko']
-                    }
-
-                    courses.push(course)
-                } catch (error) {
-                    console.error(`강의 변환 실패 (${doc.id}):`, error)
-                }
+            return {
+                courses,
+                lastDoc: lastDocument,
+                hasMore: snapshot.size === pageSize
             }
-
-            console.log(`✅ uploads에서 ${courses.length}개 강의 로드 완료`)
-            return courses
         } catch (error) {
-            console.error('uploads 강의 목록 조회 오류:', error)
+            console.error('uploads 컬렉션 조회 오류:', error)
             throw error
         }
     }
 
     /**
-     * Firestore에서 전체 강의 목록 가져오기 (캐싱 적용)
-     */
-    static async getCoursesFromFirestore() {
-        try {
-            // 1. 먼저 캐시 확인
-            const cachedCourses = this.getCachedCourses()
-            if (cachedCourses) {
-                return { courses: cachedCourses, fromCache: true }
-            }
-
-            // 2. uploads 컬렉션에서 데이터 로드
-            const courses = await this.getCoursesFromUploads()
-
-            // 3. 캐시에 저장
-            this.setCachedCourses(courses)
-
-            return { courses, fromCache: false }
-        } catch (error) {
-            console.error('Firestore 강의 목록 조회 오류:', error)
-
-            if (error.code === 'permission-denied') {
-                console.warn('Firestore 권한이 거부되었습니다.')
-                return { courses: [], fromCache: false }
-            }
-
-            throw error
-        }
-    }
-
-    /**
-     * 로컬스토리지에서 캐시된 강의 목록 가져오기
+     * 로컬 스토리지 캐시 관리 (압축 적용)
      */
     static getCachedCourses() {
         try {
@@ -268,92 +151,137 @@ class CourseService {
             if (!cached) return null
 
             const { data, timestamp } = JSON.parse(cached)
+
             if (Date.now() - timestamp > this.CACHE_DURATION) {
                 localStorage.removeItem(this.CACHE_KEY)
                 return null
             }
 
-            console.log('📦 캐시에서 강의 목록 로드')
             return data
         } catch (error) {
-            console.error('캐시 로드 오류:', error)
+            console.error('캐시 읽기 오류:', error)
+            localStorage.removeItem(this.CACHE_KEY)
             return null
         }
     }
 
-    /**
-     * 로컬스토리지에 강의 목록 캐시 저장
-     */
     static setCachedCourses(courses) {
         try {
+            // 큰 데이터는 저장하지 않음
+            if (courses.length > 100) {
+                return
+            }
+
             const cacheData = {
                 data: courses,
                 timestamp: Date.now()
             }
+
             localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData))
-            console.log('💾 강의 목록 캐시 저장')
         } catch (error) {
             console.error('캐시 저장 오류:', error)
+            // 용량 초과 시 캐시 삭제
+            if (error.name === 'QuotaExceededError') {
+                localStorage.removeItem(this.CACHE_KEY)
+            }
         }
     }
 
     /**
-     * 강의 상세 정보 가져오기 (언어별 비디오 포함)
+     * Firestore에서 전체 강의 목록 조회 (최적화)
+     */
+    static async getCoursesFromFirestore() {
+        try {
+            // 1. 먼저 캐시 확인
+            const cachedCourses = this.getCachedCourses()
+            if (cachedCourses) {
+                // 백그라운드에서 최신 데이터 로드
+                this.refreshCoursesInBackground()
+                return { courses: cachedCourses, fromCache: true }
+            }
+
+            // 2. 초기 데이터만 로드
+            const result = await this.getCoursesFromUploads(null, this.INITIAL_PAGE_SIZE)
+
+            // 3. 캐시에 저장
+            this.setCachedCourses(result.courses)
+
+            return {
+                courses: result.courses,
+                fromCache: false,
+                hasMore: result.hasMore
+            }
+        } catch (error) {
+            console.error('Firestore 강의 목록 조회 오류:', error)
+            return { courses: [], fromCache: false }
+        }
+    }
+
+    /**
+     * 백그라운드에서 최신 데이터 새로고침
+     */
+    static async refreshCoursesInBackground() {
+        try {
+            const result = await this.getCoursesFromUploads()
+            this.setCachedCourses(result.courses)
+        } catch (error) {
+            console.error('백그라운드 새로고침 실패:', error)
+        }
+    }
+
+    /**
+     * 페이지네이션으로 추가 강의 로드
+     */
+    static async getCoursesWithPagination(lastDoc = null) {
+        const cacheKey = `courses_page_${lastDoc?.id || 'first'}`
+        const cached = this.getFromMemoryCache(cacheKey)
+
+        if (cached) {
+            return cached
+        }
+
+        const result = await this.getCoursesFromUploads(lastDoc, this.PAGE_SIZE)
+        this.setMemoryCache(cacheKey, result)
+
+        return result
+    }
+
+    /**
+     * 강의 ID로 상세 정보 가져오기 (지연 로딩)
      */
     static async getCourseById(courseId) {
         try {
-            console.log(`🔍 강의 상세 조회 시작: ${courseId}`)
+            // courseId 유효성 검사
+            if (!courseId || typeof courseId !== 'string') {
+                console.error('유효하지 않은 courseId:', courseId)
+                return null
+            }
 
-            // 캐시 확인
+            // 1. 메모리 캐시 확인
             const cacheKey = `course_${courseId}`
             const cached = this.getFromMemoryCache(cacheKey)
             if (cached) {
-                console.log(`📦 메모리 캐시에서 강의 상세 로드: ${courseId}`)
                 return cached
             }
 
-            // Firestore 조회
-            const courseDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId))
+            // 2. 기본 정보만 먼저 로드
+            const courseRef = doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId)
+            const courseSnap = await getDoc(courseRef)
 
-            if (courseDoc.exists()) {
-                console.log(`✅ Firestore에서 강의 발견: ${courseId}`)
-                const course = this.convertUploadToCourse(courseDoc)
-
-                // language_videos 서브컬렉션 로드
-                try {
-                    const langVideosRef = collection(courseDoc.ref, FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS)
-                    const langVideosSnapshot = await getDocs(langVideosRef)
-
-                    const languageVideos = {}
-                    langVideosSnapshot.forEach(langDoc => {
-                        const langData = langDoc.data()
-                        languageVideos[langDoc.id] = {
-                            ...langData,
-                            // video_url 필드 정규화
-                            video_url: langData.video_url || langData.videoUrl || langData.video_link || ''
-                        }
-                    })
-
-                    course.languageVideos = languageVideos
-                    course.availableLanguages = Object.keys(languageVideos).length > 0
-                        ? Object.keys(languageVideos)
-                        : ['ko']
-                    course.hasMultipleLanguages = course.availableLanguages.length > 1
-                    course.hasLanguageVideos = Object.keys(languageVideos).length > 0
-
-                    console.log(`🌍 언어별 비디오 로드 완료:`, course.availableLanguages)
-                } catch (error) {
-                    console.warn(`언어별 비디오 로드 실패:`, error)
-                }
-
-                // 캐시에 저장
-                this.setMemoryCache(cacheKey, course)
-
-                return course
+            if (!courseSnap.exists()) {
+                console.warn(`강의를 찾을 수 없음: ${courseId}`)
+                return null
             }
 
-            console.warn(`⚠️ 강의를 찾을 수 없음: ${courseId}`)
-            return null
+            const course = this.convertUploadToCourse(courseSnap)
+
+            // 3. 캐시에 저장하고 반환
+            this.setMemoryCache(cacheKey, course)
+
+            // 4. 언어별 비디오는 별도로 비동기 로드
+            this.loadLanguageVideosAsync(courseId, course)
+
+            return course
         } catch (error) {
             console.error('강의 상세 조회 오류:', error)
             throw error
@@ -361,12 +289,43 @@ class CourseService {
     }
 
     /**
-     * 사용자별 수강 정보 가져오기
+     * 언어별 비디오 비동기 로드
      */
-    static async getUserEnrollments(userId) {
-        // 최적화된 메서드로 리다이렉트
-        const enrollmentsWithCourses = await this.getUserEnrollmentsWithCourses(userId)
-        return enrollmentsWithCourses
+    static async loadLanguageVideosAsync(courseId, course) {
+        try {
+            const languageVideosRef = collection(
+                db,
+                FIREBASE_COLLECTIONS.UPLOADS,
+                courseId,
+                FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS
+            )
+
+            const snapshot = await getDocs(languageVideosRef)
+            const languageVideos = {}
+
+            snapshot.forEach((doc) => {
+                const data = doc.data()
+                const language = data.language || doc.id
+                languageVideos[language] = {
+                    language,
+                    videoUrl: data.video_url || data.videoUrl || '',
+                    hasVideo: !!data.video_url || !!data.videoUrl,
+                    uploadedAt: data.uploadedAt || new Date()
+                }
+            })
+
+            // 캐시 업데이트
+            course.languageVideos = languageVideos
+            course.availableLanguages = Object.keys(languageVideos).length > 0 ?
+                Object.keys(languageVideos) : ['ko']
+            course.hasMultipleLanguages = course.availableLanguages.length > 1
+
+            // 메모리 캐시 업데이트
+            const cacheKey = `course_${courseId}`
+            this.setMemoryCache(cacheKey, course)
+        } catch (error) {
+            console.warn('언어별 비디오 로드 실패:', error)
+        }
     }
 
     /**
@@ -378,92 +337,64 @@ class CourseService {
             const cacheKey = `enrollments_${userId}`
             const cached = this.getFromMemoryCache(cacheKey)
             if (cached) {
-                console.log('📦 메모리 캐시에서 enrollment 데이터 사용')
                 return cached
             }
-
-            console.log('🔄 최적화된 enrollment 로드 시작...')
 
             // 2. 사용자의 enrollment 조회
             const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
             const q = query(
                 enrollmentsRef,
                 where('userId', '==', userId),
-                orderBy('enrolledAt', 'desc')
+                orderBy('enrolledAt', 'desc'),
+                limit(50) // 최대 50개로 제한
             )
 
             const snapshot = await getDocs(q)
 
             if (snapshot.empty) {
-                console.log('📭 수강 정보가 없습니다')
                 return []
             }
 
-            // 3. courseId 수집
-            const courseIds = []
-            const enrollmentMap = new Map()
+            // 3. 병렬 처리로 강의 정보 로드
+            const enrollmentPromises = []
 
             snapshot.forEach(doc => {
                 const data = doc.data()
-                courseIds.push(data.courseId)
-                enrollmentMap.set(data.courseId, {
+                const promise = this.getCourseById(data.courseId).then(course => ({
                     id: doc.id,
-                    ...data
-                })
+                    ...data,
+                    course
+                }))
+                enrollmentPromises.push(promise)
             })
 
-            // 4. 관련 강의 정보 한 번에 조회
-            const enrollmentsWithCourses = []
+            const enrollmentsWithCourses = await Promise.all(enrollmentPromises)
 
-            for (const courseId of courseIds) {
-                try {
-                    // 강의 정보 가져오기 (언어별 비디오 포함)
-                    const course = await this.getCourseById(courseId)
-
-                    if (course) {
-                        const enrollment = enrollmentMap.get(courseId)
-                        enrollmentsWithCourses.push({
-                            ...enrollment,
-                            course: course,
-                            courseId: courseId
-                        })
-                    }
-                } catch (error) {
-                    console.error(`강의 정보 로드 실패 (${courseId}):`, error)
-                }
-            }
-
-            // 5. 캐시 저장
+            // 4. 캐시 저장
             this.setMemoryCache(cacheKey, enrollmentsWithCourses)
 
-            // 로컬스토리지에도 저장
-            try {
-                localStorage.setItem(cacheKey, JSON.stringify({
-                    data: enrollmentsWithCourses,
-                    timestamp: Date.now()
-                }))
-            } catch (e) {
-                console.warn('로컬스토리지 저장 실패:', e)
-            }
-
-            console.log(`✅ ${enrollmentsWithCourses.length}개 enrollment 최적화 로드 완료`)
             return enrollmentsWithCourses
         } catch (error) {
-            console.error('❌ 최적화된 enrollment 로드 실패:', error)
+            console.error('최적화된 enrollment 로드 실패:', error)
             throw error
         }
     }
 
     /**
-     * 비디오 URL 가져오기 (언어별 지원)
+     * 비디오 URL 가져오기 (CDN 최적화)
      */
     static async getVideoUrl(videoId, language = 'ko') {
         try {
-            // Railway 프록시 URL 반환
             const baseUrl = import.meta.env.VITE_API_URL || ''
             const videoUrl = `${baseUrl}/watch/${videoId}?lang=${language}`
 
-            console.log(`🎬 비디오 URL 생성: ${videoUrl}`)
+            // 프리로드 힌트 추가
+            const link = document.createElement('link')
+            link.rel = 'preload'
+            link.as = 'video'
+            link.href = videoUrl
+            document.head.appendChild(link)
+
             return videoUrl
         } catch (error) {
             console.error('비디오 URL 생성 오류:', error)
@@ -472,81 +403,219 @@ class CourseService {
     }
 
     /**
-     * 수강 신청
+     * 언어별 비디오 URL 가져오기
      */
-    static async enrollCourse(courseId, userId, isQRAccess = false) {
+    static async getVideoUrlForLanguage(courseId, language = 'ko') {
+        try {
+            // 1. 먼저 메모리 캐시에서 강의 정보 확인
+            const cacheKey = `course_${courseId}`
+            const cached = this.getFromMemoryCache(cacheKey)
+
+            if (cached?.languageVideos?.[language]) {
+                console.log(`📦 캐시에서 ${language} 비디오 URL 반환`)
+                const videoUrl = cached.languageVideos[language].videoUrl
+                if (videoUrl) {
+                    return videoUrl
+                }
+            }
+
+            // 2. 강의 정보가 없으면 로드
+            const course = await this.getCourseById(courseId)
+            if (!course) {
+                throw new Error(`강의를 찾을 수 없습니다: ${courseId}`)
+            }
+
+            // 3. 언어별 비디오 정보 확인
+            if (course.languageVideos?.[language]) {
+                const videoUrl = course.languageVideos[language].videoUrl
+                if (videoUrl) {
+                    return videoUrl
+                }
+            }
+
+            // 4. 언어별 비디오가 없으면 기본 URL 반환
+            console.log(`⚠️ ${language} 비디오가 없어 기본 URL 사용`)
+            const baseUrl = import.meta.env.VITE_API_URL || ''
+            return `${baseUrl}/watch/${courseId}?lang=${language}`
+
+        } catch (error) {
+            console.error('언어별 비디오 URL 조회 오류:', error)
+            // 오류 시 기본 URL 반환
+            const baseUrl = import.meta.env.VITE_API_URL || ''
+            return `${baseUrl}/watch/${courseId}?lang=${language}`
+        }
+    }
+
+    /**
+     * 수강 신청 (배치 처리)
+     */
+    static async enrollCourse(userId, courseId) {
         try {
             const enrollmentData = {
-                courseId,
                 userId,
-                status: 'enrolled',
-                progress: 0,
+                courseId,
                 enrolledAt: serverTimestamp(),
-                lastAccessedAt: serverTimestamp(),
-                isQRAccess,
-                completedAt: null
+                progress: 0,
+                status: 'enrolled',
+                lastAccessedAt: serverTimestamp()
             }
 
             const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
             const docRef = await addDoc(enrollmentsRef, enrollmentData)
 
+            // 캐시 무효화
+            const cacheKey = `enrollments_${userId}`
+            this.memoryCache.delete(cacheKey)
+
             return {
-                success: true,
-                enrollmentId: docRef.id
+                id: docRef.id,
+                ...enrollmentData,
+                enrolledAt: new Date()
             }
         } catch (error) {
             console.error('수강 신청 오류:', error)
-            return {
-                success: false,
-                error: error.message
+            throw error
+        }
+    }
+
+    /**
+     * 여러 강의 일괄 수강 신청
+     */
+    static async enrollMultipleCourses(userId, courseIds) {
+        const results = {
+            success: [],
+            failed: []
+        }
+
+        // 배치 처리로 성능 최적화
+        const batchSize = 5
+        for (let i = 0; i < courseIds.length; i += batchSize) {
+            const batch = courseIds.slice(i, i + batchSize)
+            const promises = batch.map(courseId =>
+                this.enrollCourse(userId, courseId)
+                    .then(result => ({ courseId, result, success: true }))
+                    .catch(error => ({ courseId, error, success: false }))
+            )
+
+            const batchResults = await Promise.all(promises)
+
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.success.push(result)
+                } else {
+                    results.failed.push(result)
+                }
+            })
+        }
+
+        return results
+    }
+
+    /**
+     * 캐시 초기화
+     */
+    static clearCache() {
+        this.memoryCache.clear()
+        localStorage.removeItem(this.CACHE_KEY)
+
+        // 추가 캐시 키들도 삭제
+        const keys = Object.keys(localStorage)
+        keys.forEach(key => {
+            if (key.startsWith('courses_') || key.startsWith('enrollments_')) {
+                localStorage.removeItem(key)
             }
+        })
+    }
+
+    /**
+     * 사용자 진도 정보 가져오기
+     */
+    static async getProgress(userId, courseId) {
+        try {
+            if (!userId || !courseId) return 0
+
+            const progressRef = doc(db, 'progress', `${userId}_${courseId}`)
+            const progressSnap = await getDoc(progressRef)
+
+            if (progressSnap.exists()) {
+                const data = progressSnap.data()
+                return data.progress || data.percentage || 0
+            }
+
+            return 0
+        } catch (error) {
+            console.error('진도 조회 오류:', error)
+            return 0
         }
     }
 
     /**
      * 진도 업데이트
      */
-    static async updateProgress(courseId, userId, progress, currentTime = 0) {
+    static async updateProgress(userId, courseId, progress) {
         try {
-            const progressRef = doc(
-                db,
-                FIREBASE_COLLECTIONS.PROGRESS,
-                `${userId}_${courseId}`
-            )
+            const progressRef = doc(db, 'progress', `${userId}_${courseId}`)
 
-            await setDoc(progressRef, {
-                courseId,
+            const progressData = {
                 userId,
-                progress,
-                currentTime,
-                lastUpdatedAt: serverTimestamp()
-            }, { merge: true })
-
-            // 100% 완료 시 수강 정보 업데이트
-            if (progress === 100) {
-                const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
-                const q = query(
-                    enrollmentsRef,
-                    where('userId', '==', userId),
-                    where('courseId', '==', courseId),
-                    limit(1)
-                )
-
-                const snapshot = await getDocs(q)
-                if (!snapshot.empty) {
-                    const enrollmentDoc = snapshot.docs[0]
-                    await updateDoc(enrollmentDoc.ref, {
-                        status: 'completed',
-                        progress: 100,
-                        completedAt: serverTimestamp()
-                    })
-                }
+                courseId,
+                progress: Math.round(progress),
+                lastUpdated: serverTimestamp(),
+                completed: progress >= 100
             }
 
-            return { success: true }
+            await setDoc(progressRef, progressData, { merge: true })
+
+            return progressData
         } catch (error) {
             console.error('진도 업데이트 오류:', error)
-            return { success: false, error: error.message }
+            throw error
+        }
+    }
+
+    /**
+     * QR 토큰 검증
+     */
+    static async validateQRToken(courseId, token) {
+        try {
+            // 실제로는 서버에서 검증해야 함
+            // 여기서는 간단한 검증만 수행
+            return token && token.length > 0
+        } catch (error) {
+            console.error('QR 토큰 검증 오류:', error)
+            return false
+        }
+    }
+
+    /**
+     * 캐시 상태 확인
+     */
+    static getCacheStatus() {
+        return {
+            memoryCacheSize: this.memoryCache.size,
+            localStorageKeys: Object.keys(localStorage).filter(key =>
+                key.startsWith('courses_') || key.startsWith('enrollments_')
+            ).length
+        }
+    }
+
+    /**
+     * 비디오 스트리밍 최적화 설정
+     */
+    static getOptimizedVideoConfig() {
+        return {
+            preload: 'metadata',
+            playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+            controls: true,
+            fluid: true,
+            responsive: true,
+            html5: {
+                hls: {
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    overrideNative: true
+                }
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-// web/src/stores/course.js
+// web/src/stores/course.js - 성능 최적화 버전
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import CourseService from '@/services/courseService'
@@ -10,27 +10,38 @@ export const useCourseStore = defineStore('course', () => {
     const enrollments = ref([])
     const selectedCourseIds = ref([])
     const isLoading = ref(false)
+    const isLoadingFromCache = ref(false)
     const error = ref(null)
     const lastLoadTime = ref(null)
-    const isLoadingFromCache = ref(false)
+    const hasMore = ref(true)
+    const lastDoc = ref(null)
 
     // 선택된 강의 수
     const selectedCount = computed(() => selectedCourseIds.value.length)
 
-    // 선택된 강의 목록 (null 체크 추가)
+    // 선택된 강의 목록 (최적화)
     const selectedCourses = computed(() => {
+        const courseMap = new Map(courses.value.map(c => [c.id, c]))
         return selectedCourseIds.value
-            .map(id => courses.value.find(course => course.id === id))
-            .filter(course => course !== undefined && course !== null)
+            .map(id => courseMap.get(id))
+            .filter(Boolean)
     })
 
-    // Firestore에서 강의 목록 로드 (캐시 적용)
+    // 수강 정보 맵 (빠른 조회용)
+    const enrollmentMap = computed(() => {
+        return new Map(enrollments.value.map(e => [e.courseId, e]))
+    })
+
+    // Firestore에서 강의 목록 로드 (최적화)
     const loadCoursesFromFirestore = async (forceRefresh = false) => {
         try {
-            // 강제 새로고침이 아니고 이미 데이터가 있으면 캐시 사용
+            // 중복 로딩 방지
+            if (isLoading.value) return courses.value
+
+            // 캐시 확인
             if (!forceRefresh && courses.value.length > 0 && lastLoadTime.value) {
                 const timeSinceLastLoad = Date.now() - lastLoadTime.value
-                if (timeSinceLastLoad < 60000) { // 1분 이내면 캐시 사용
+                if (timeSinceLastLoad < 60000) { // 1분 이내
                     console.log('📦 메모리 캐시 사용')
                     return courses.value
                 }
@@ -39,7 +50,7 @@ export const useCourseStore = defineStore('course', () => {
             isLoading.value = true
             error.value = null
 
-            // CourseService에서 데이터 가져오기 (로컬스토리지 캐시 포함)
+            // CourseService에서 데이터 가져오기
             const data = await CourseService.getCoursesFromFirestore()
 
             if (data.fromCache) {
@@ -48,27 +59,16 @@ export const useCourseStore = defineStore('course', () => {
             }
 
             courses.value = data.courses || []
+            hasMore.value = data.hasMore || false
             lastLoadTime.value = Date.now()
 
-            console.log('✅ 강의 목록 로드 성공:', courses.value.length)
-
-            // 로드된 강의 정보 샘플 출력 (디버깅용)
-            if (courses.value.length > 0) {
-                console.log('첫 번째 강의 정보:', {
-                    id: courses.value[0].id,
-                    title: courses.value[0].title,
-                    category: courses.value[0].category,
-                    hasVideo: !!courses.value[0].videoUrl,
-                    languages: courses.value[0].availableLanguages
-                })
-            }
+            console.log(`✅ 강의 목록 로드 성공: ${courses.value.length}개`)
 
             return courses.value
         } catch (err) {
             console.error('❌ 강의 목록 로드 실패:', err)
             error.value = err.message
 
-            // Firestore 권한 오류 시에도 빈 배열 반환
             if (err.code === 'permission-denied') {
                 courses.value = []
                 return []
@@ -81,20 +81,28 @@ export const useCourseStore = defineStore('course', () => {
         }
     }
 
-    // 페이지네이션으로 강의 로드
-    const loadCoursesWithPagination = async (lastDoc = null) => {
+    // 페이지네이션으로 추가 강의 로드
+    const loadCoursesWithPagination = async (lastDocument = null) => {
         try {
+            if (isLoading.value || !hasMore.value) return
+
             isLoading.value = true
             error.value = null
 
-            const result = await CourseService.getCoursesWithPagination(lastDoc)
+            const result = await CourseService.getCoursesWithPagination(
+                lastDocument || lastDoc.value
+            )
 
-            if (lastDoc) {
-                // 추가 로드
-                courses.value = [...courses.value, ...result.courses]
+            if (result.courses.length > 0) {
+                // 중복 제거 후 추가
+                const existingIds = new Set(courses.value.map(c => c.id))
+                const newCourses = result.courses.filter(c => !existingIds.has(c.id))
+
+                courses.value = [...courses.value, ...newCourses]
+                lastDoc.value = result.lastDoc
+                hasMore.value = result.hasMore
             } else {
-                // 초기 로드
-                courses.value = result.courses
+                hasMore.value = false
             }
 
             return result
@@ -111,10 +119,13 @@ export const useCourseStore = defineStore('course', () => {
     const clearCache = () => {
         CourseService.clearCache()
         lastLoadTime.value = null
+        courses.value = []
+        lastDoc.value = null
+        hasMore.value = true
         console.log('🗑️ 캐시 초기화 완료')
     }
 
-    // 사용자 수강 정보 로드
+    // 사용자 수강 정보 로드 (최적화)
     const loadUserEnrollments = async () => {
         try {
             const authStore = useAuthStore()
@@ -127,16 +138,12 @@ export const useCourseStore = defineStore('course', () => {
 
             isLoading.value = true
 
-            // CourseService에서 수강 정보 가져오기
-            const userEnrollments = await CourseService.getUserEnrollments(userId)
+            // CourseService에서 최적화된 메서드 사용
+            const userEnrollments = await CourseService.getUserEnrollmentsWithCourses(userId)
 
-            // 강의 정보와 병합
-            enrollments.value = userEnrollments.map(enrollment => ({
-                ...enrollment,
-                course: courses.value.find(c => c.id === enrollment.courseId)
-            }))
+            enrollments.value = userEnrollments
 
-            console.log('✅ 수강 정보 로드 성공:', enrollments.value.length)
+            console.log(`✅ 수강 정보 로드 성공: ${enrollments.value.length}개`)
         } catch (err) {
             console.error('❌ 수강 정보 로드 실패:', err)
             error.value = err.message
@@ -146,26 +153,16 @@ export const useCourseStore = defineStore('course', () => {
         }
     }
 
-    // 강의 ID로 조회 (null 체크 추가)
+    // 강의 ID로 조회 (최적화)
     const getCourseById = (courseId) => {
         if (!courseId) {
             console.warn('⚠️ getCourseById: courseId가 없습니다')
             return null
         }
 
-        const course = courses.value.find(course => course.id === courseId)
-
-        if (!course) {
-            console.warn(`⚠️ 메모리에서 강의를 찾을 수 없음: ${courseId}`)
-            // 강의 목록이 비어있으면 로드 시도
-            if (courses.value.length === 0) {
-                console.log('🔄 강의 목록이 비어있어 로드를 시도합니다')
-            }
-        } else {
-            console.log(`✅ 메모리에서 강의 찾음: ${courseId}`)
-        }
-
-        return course || null
+        // Map을 사용한 빠른 조회
+        const courseMap = new Map(courses.value.map(c => [c.id, c]))
+        return courseMap.get(courseId) || null
     }
 
     // 강의 상세 정보 가져오기 (캐싱 적용)
@@ -173,7 +170,7 @@ export const useCourseStore = defineStore('course', () => {
         try {
             // 먼저 메모리 캐시에서 찾기
             const cached = getCourseById(courseId)
-            if (cached && cached.detailsLoaded) {
+            if (cached?.detailsLoaded) {
                 console.log(`📦 캐시에서 강의 상세 정보 반환: ${courseId}`)
                 return cached
             }
@@ -182,13 +179,6 @@ export const useCourseStore = defineStore('course', () => {
             if (courses.value.length === 0) {
                 console.log('🔄 강의 목록 먼저 로드')
                 await loadCoursesFromFirestore()
-            }
-
-            // 다시 메모리에서 찾기
-            const courseFromMemory = getCourseById(courseId)
-            if (courseFromMemory) {
-                console.log(`✅ 메모리에서 강의 찾음: ${courseId}`)
-                return courseFromMemory
             }
 
             // CourseService에서 개별 강의 로드
@@ -209,91 +199,79 @@ export const useCourseStore = defineStore('course', () => {
 
             return null
         } catch (err) {
-            console.error(`❌ 강의 상세 정보 로드 실패 (${courseId}):`, err)
+            console.error('강의 상세 조회 실패:', err)
             throw err
         }
     }
 
-    // 수강 상태 확인
+    // 수강 상태 확인 (최적화)
     const getEnrollmentStatus = (courseId) => {
-        const enrollment = enrollments.value.find(e => e.courseId === courseId)
-        if (!enrollment) return 'not-enrolled'
-        return enrollment.status || 'in-progress'
+        return enrollmentMap.value.get(courseId)?.status || null
     }
 
-    // 진도율 가져오기
+    // 진도율 확인 (최적화)
     const getProgress = (courseId) => {
-        const enrollment = enrollments.value.find(e => e.courseId === courseId)
-        return enrollment?.progress || 0
+        return enrollmentMap.value.get(courseId)?.progress || 0
     }
 
-    // 선택 상태 확인
-    const isSelected = (courseId) => {
-        return selectedCourseIds.value.includes(courseId)
-    }
+    // 선택 관련 메서드
+    const isSelected = (courseId) => selectedCourseIds.value.includes(courseId)
 
-    // 선택 목록에 추가
     const addToSelected = (courseId) => {
         if (!isSelected(courseId)) {
             selectedCourseIds.value.push(courseId)
-            saveSelectedToStorage()
         }
     }
 
-    // 선택 목록에서 제거
     const removeFromSelected = (courseId) => {
         const index = selectedCourseIds.value.indexOf(courseId)
         if (index > -1) {
             selectedCourseIds.value.splice(index, 1)
-            saveSelectedToStorage()
         }
     }
 
-    // 선택 목록 초기화 (별칭 추가)
     const clearSelected = () => {
         selectedCourseIds.value = []
         saveSelectedToStorage()
     }
 
-    // 별칭 메서드
-    const clearSelectedCourses = clearSelected
+    const clearSelectedCourses = clearSelected // 별칭
 
-    // 로컬 스토리지에 저장
+    // 로컬 스토리지 저장/로드 (최적화)
     const saveSelectedToStorage = () => {
-        localStorage.setItem('selectedCourses', JSON.stringify(selectedCourseIds.value))
-    }
-
-    // 로컬 스토리지에서 로드
-    const loadSelectedFromStorage = () => {
-        const saved = localStorage.getItem('selectedCourses')
-        if (saved) {
-            try {
-                selectedCourseIds.value = JSON.parse(saved)
-                // 유효성 검사
-                selectedCourseIds.value = selectedCourseIds.value.filter(id => id && typeof id === 'string')
-            } catch (error) {
-                console.error('선택 목록 로드 실패:', error)
-                selectedCourseIds.value = []
-            }
+        try {
+            localStorage.setItem('selectedCourseIds', JSON.stringify(selectedCourseIds.value))
+        } catch (error) {
+            console.error('선택 항목 저장 실패:', error)
         }
     }
 
-    // 수강 신청
+    const loadSelectedFromStorage = () => {
+        try {
+            const saved = localStorage.getItem('selectedCourseIds')
+            if (saved) {
+                selectedCourseIds.value = JSON.parse(saved)
+            }
+        } catch (error) {
+            console.error('선택 항목 로드 실패:', error)
+            selectedCourseIds.value = []
+        }
+    }
+
+    // 수강 신청 (최적화된 배치 처리)
     const enrollCourse = async (courseId) => {
         try {
             const authStore = useAuthStore()
-            if (!authStore.isLoggedIn) {
+            const userId = authStore.userId
+
+            if (!userId) {
                 throw new Error('로그인이 필요합니다')
             }
 
-            const userId = authStore.userId
             const enrollment = await CourseService.enrollCourse(userId, courseId)
 
-            // 수강 목록 업데이트
-            enrollments.value.push({
-                ...enrollment,
-                course: getCourseById(courseId)
-            })
+            // 로컬 상태 업데이트
+            enrollments.value.push(enrollment)
 
             return enrollment
         } catch (err) {
@@ -302,52 +280,54 @@ export const useCourseStore = defineStore('course', () => {
         }
     }
 
-    // 선택한 강의 일괄 수강 신청
+    // 선택한 강의 일괄 수강 신청 (최적화)
     const enrollSelectedCourses = async () => {
         try {
             const authStore = useAuthStore()
-            if (!authStore.isLoggedIn) {
+            const userId = authStore.userId
+
+            if (!userId) {
                 throw new Error('로그인이 필요합니다')
             }
 
-            const userId = authStore.userId
-            const results = {
-                success: [],
-                failed: [],
-                alreadyEnrolled: [],
-                totalCount: selectedCourseIds.value.length
+            if (selectedCourseIds.value.length === 0) {
+                throw new Error('선택된 강의가 없습니다')
             }
 
-            for (const courseId of selectedCourseIds.value) {
-                try {
-                    // 이미 수강 중인지 확인
-                    if (getEnrollmentStatus(courseId) !== 'not-enrolled') {
-                        results.alreadyEnrolled.push(courseId)
-                        continue
-                    }
+            // 이미 수강 중인 강의 필터링
+            const enrolledCourseIds = new Set(enrollments.value.map(e => e.courseId))
+            const coursesToEnroll = selectedCourseIds.value.filter(id => !enrolledCourseIds.has(id))
 
-                    const enrollment = await CourseService.enrollCourse(userId, courseId)
-                    enrollments.value.push({
-                        ...enrollment,
-                        course: getCourseById(courseId)
-                    })
-                    results.success.push(courseId)
-                } catch (error) {
-                    console.error(`수강 신청 실패 (${courseId}):`, error)
-                    results.failed.push({ courseId, error: error.message })
+            if (coursesToEnroll.length === 0) {
+                return {
+                    success: true,
+                    successCount: 0,
+                    failedCount: 0,
+                    message: '이미 모든 강의를 수강 중입니다'
                 }
             }
 
-            // 성공한 강의는 선택 목록에서 제거
-            results.success.forEach(courseId => {
-                removeFromSelected(courseId)
+            // 배치 처리로 일괄 신청
+            const results = await CourseService.enrollMultipleCourses(userId, coursesToEnroll)
+
+            // 성공한 수강 신청 로컬 상태 업데이트
+            results.success.forEach(({ courseId, result }) => {
+                enrollments.value.push({
+                    ...result,
+                    courseId,
+                    course: getCourseById(courseId)
+                })
             })
 
-            results.successCount = results.success.length
-            results.failedCount = results.failed.length
-            results.alreadyEnrolledCount = results.alreadyEnrolled.length
+            // 선택 목록 초기화
+            clearSelected()
 
-            return results
+            return {
+                success: results.failed.length === 0,
+                successCount: results.success.length,
+                failedCount: results.failed.length,
+                message: `${results.success.length}개 강의 수강 신청 완료`
+            }
         } catch (err) {
             console.error('일괄 수강 신청 실패:', err)
             throw err
@@ -384,7 +364,7 @@ export const useCourseStore = defineStore('course', () => {
             // QR 데이터 파싱
             const { courseId, token } = JSON.parse(qrData)
 
-            // 토큰 검증 (실제로는 서버에서 검증)
+            // 토큰 검증
             const isValid = await CourseService.validateQRToken(courseId, token)
             if (!isValid) {
                 throw new Error('유효하지 않은 QR 코드입니다')
@@ -403,22 +383,34 @@ export const useCourseStore = defineStore('course', () => {
         }
     }
 
+    // 캐시 상태 확인
+    const getCacheStatus = () => {
+        return {
+            memoryCourses: courses.value.length,
+            lastLoadTime: lastLoadTime.value ? new Date(lastLoadTime.value).toLocaleString() : null,
+            hasMore: hasMore.value,
+            ...CourseService.getCacheStatus()
+        }
+    }
+
     return {
         // 상태
         courses,
         enrollments,
         selectedCourseIds,
         isLoading,
-        error,
         isLoadingFromCache,
+        error,
+        hasMore,
 
         // 계산된 속성
         selectedCount,
         selectedCourses,
+        enrollmentMap,
 
         // 메서드
         loadCoursesFromFirestore,
-        loadCoursesFromFlask: loadCoursesFromFirestore, // 호환성을 위한 별칭
+        loadCoursesFromFlask: loadCoursesFromFirestore, // 호환성
         loadCoursesWithPagination,
         clearCache,
         loadUserEnrollments,
@@ -436,6 +428,7 @@ export const useCourseStore = defineStore('course', () => {
         enrollCourse,
         enrollSelectedCourses,
         updateProgress,
-        accessCourseByQR
+        accessCourseByQR,
+        getCacheStatus
     }
 })

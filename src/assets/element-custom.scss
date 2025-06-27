@@ -329,15 +329,35 @@
   font-weight: 600;
 }
 
-/* 프로그레스 */
+/* 프로그레스 - 색상 수정 */
 .el-progress-bar__outer {
-  background-color: var(--el-fill-color);
+  background-color: #e5e7eb; /* 명확한 회색 배경 */
   border-radius: var(--el-border-radius-round);
+  height: 8px; /* 높이 증가 */
 }
 
 .el-progress-bar__inner {
-  background-color: var(--el-color-primary);
+  background-color: #10b981; /* 명확한 초록색 */
   border-radius: var(--el-border-radius-round);
+  transition: width 0.6s ease;
+}
+
+/* 텍스트가 있는 프로그레스 */
+.el-progress--text .el-progress-bar__outer {
+  height: 10px;
+}
+
+/* 프로그레스 상태별 색상 */
+.el-progress--success .el-progress-bar__inner {
+  background-color: var(--el-color-success);
+}
+
+.el-progress--warning .el-progress-bar__inner {
+  background-color: var(--el-color-warning);
+}
+
+.el-progress--exception .el-progress-bar__inner {
+  background-color: var(--el-color-danger);
 }
 
 /* 체크박스 */
