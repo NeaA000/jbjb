@@ -1,0 +1,36 @@
+<svg width="400" height="300" viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- 배경 원 -->
+    <circle cx="320" cy="80" r="60" fill="#E0E7FF" opacity="0.5"/>
+    <circle cx="80" cy="220" r="40" fill="#DBEAFE" opacity="0.5"/>
+
+    <!-- 메인 일러스트 - 교육 관련 아이콘 -->
+    <g transform="translate(150, 100)">
+        <!-- 책 -->
+        <rect x="0" y="0" width="100" height="80" rx="5" fill="#667EEA"/>
+        <rect x="5" y="5" width="90" height="70" rx="3" fill="#5A67D8"/>
+        <rect x="10" y="10" width="80" height="60" fill="#ffffff" opacity="0.2"/>
+
+        <!-- 책 페이지 라인 -->
+        <line x1="20" y1="25" x2="70" y2="25" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+        <line x1="20" y1="35" x2="60" y2="35" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+        <line x1="20" y1="45" x2="65" y2="45" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+        <line x1="20" y1="55" x2="55" y2="55" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+
+        <!-- 졸업 모자 -->
+        <g transform="translate(30, -30)">
+            <path d="M0 15 L20 0 L40 15 L20 25 Z" fill="#4C1D95"/>
+            <rect x="35" y="10" width="2" height="20" fill="#4C1D95"/>
+            <circle cx="36" cy="32" r="3" fill="#4C1D95"/>
+        </g>
+    </g>
+
+    <!-- 장식 요소들 -->
+    <circle cx="120" cy="80" r="3" fill="#667EEA"/>
+    <circle cx="280" cy="180" r="4" fill="#667EEA"/>
+    <circle cx="100" cy="150" r="2" fill="#DBEAFE"/>
+    <circle cx="300" cy="120" r="3" fill="#DBEAFE"/>
+
+    <!-- 별 모양 -->
+    <path d="M150 50 L152 56 L158 56 L153 60 L155 66 L150 62 L145 66 L147 60 L142 56 L148 56 Z" fill="#F59E0B" opacity="0.8"/>
+    <path d="M250 200 L251 204 L255 204 L252 206 L253 210 L250 208 L247 210 L248 206 L245 204 L249 204 Z" fill="#F59E0B" opacity="0.6"/>
+</svg>

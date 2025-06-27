@@ -11,11 +11,13 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
     "@fortawesome/fontawesome-free": "^6.7.2",
+    "@videojs/themes": "^1.0.1",
     "element-plus": "^2.10.2",
     "firebase": "^11.9.1",
     "lucide-vue-next": "^0.523.0",
     "pinia": "^3.0.3",
     "pinia-plugin-persistedstate": "^4.3.0",
+    "video.js": "^8.23.3",
     "vue": "^3.5.17",
     "vue-router": "^4.5.1"
   },
