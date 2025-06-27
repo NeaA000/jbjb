@@ -35,6 +35,37 @@
           label-width="100px"
           class="signup-form"
       >
+        <!-- 프로필 사진 업로드 -->
+        <el-form-item label="프로필 사진" prop="profilePhoto">
+          <div class="photo-upload-container">
+            <div class="photo-preview" @click="triggerFileInput">
+              <img
+                  v-if="photoPreview"
+                  :src="photoPreview"
+                  alt="프로필 사진"
+              >
+              <div v-else class="photo-placeholder">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M23 19C23 19.5304 22.7893 20.0391 22.4142 20.4142C22.0391 20.7893 21.5304 21 21 21H3C2.46957 21 1.96086 20.7893 1.58579 20.4142C1.21071 20.0391 1 19.5304 1 19V8C1 7.46957 1.21071 6.96086 1.58579 6.58579C1.96086 6.21071 2.46957 6 3 6H7L9 3H15L17 6H21C21.5304 6 22.0391 6.21071 22.4142 6.58579C22.7893 6.96086 23 7.46957 23 8V19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>사진 선택</span>
+              </div>
+            </div>
+            <input
+                ref="fileInput"
+                type="file"
+                accept="image/*"
+                @change="handlePhotoChange"
+                style="display: none"
+            />
+            <div class="photo-info">
+              <p>수료증에 표시될 사진입니다</p>
+              <p class="photo-requirements">JPG, PNG (최대 5MB)</p>
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item label="생년월일" prop="birthDate">
           <el-date-picker
               v-model="formData.birthDate"
@@ -123,7 +154,12 @@ const emit = defineEmits(['close', 'completed'])
 
 const authStore = useAuthStore()
 const formRef = ref()
+const fileInput = ref()
 const loading = ref(false)
+
+// 사진 관련
+const photoFile = ref(null)
+const photoPreview = ref('')
 
 // 다이얼로그 표시 상태
 const visible = computed({
@@ -183,6 +219,38 @@ const formatPhoneNumber = (value) => {
   }
 }
 
+// 파일 입력 트리거
+const triggerFileInput = () => {
+  fileInput.value?.click()
+}
+
+// 사진 변경 처리
+const handlePhotoChange = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  // 파일 크기 검증 (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.error('파일 크기는 5MB를 초과할 수 없습니다')
+    return
+  }
+
+  // 파일 타입 검증
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('이미지 파일만 업로드 가능합니다')
+    return
+  }
+
+  photoFile.value = file
+
+  // 미리보기 생성
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    photoPreview.value = e.target.result
+  }
+  reader.readAsDataURL(file)
+}
+
 // 폼 제출
 const handleSubmit = async () => {
   // 폼 유효성 검사
@@ -198,8 +266,8 @@ const handleSubmit = async () => {
   loading.value = true
 
   try {
-    // Google 사용자 추가 정보 업데이트
-    const result = await authStore.completeGoogleProfile(props.googleUserInfo.uid, {
+    // 1. Google 사용자 추가 정보 업데이트
+    const profileResult = await authStore.completeGoogleProfile(props.googleUserInfo.uid, {
       birthDate: formData.birthDate,
       phoneNumber: formData.phoneNumber,
       company: formData.company,
@@ -210,15 +278,28 @@ const handleSubmit = async () => {
       }
     })
 
-    if (result.success) {
-      ElMessage.success('회원가입이 완료되었습니다!')
-      emit('completed')
-    } else {
-      ElMessage.error(result.error || '회원가입 중 오류가 발생했습니다')
+    if (!profileResult.success) {
+      throw new Error(profileResult.error || '프로필 업데이트 실패')
     }
+
+    // 2. 프로필 사진 업로드 (선택한 경우)
+    if (photoFile.value) {
+      const photoResult = await authStore.uploadProfilePhoto(photoFile.value)
+      if (!photoResult.success) {
+        ElMessage.warning('프로필 사진 업로드에 실패했지만 회원가입은 완료되었습니다')
+      }
+    } else if (props.googleUserInfo.photoURL) {
+      // Google 프로필 사진을 기본으로 사용하는 경우
+      await authStore.updateProfile({
+        photoURL: props.googleUserInfo.photoURL
+      })
+    }
+
+    ElMessage.success('회원가입이 완료되었습니다!')
+    emit('completed')
   } catch (error) {
     console.error('회원가입 오류:', error)
-    ElMessage.error('회원가입 중 오류가 발생했습니다')
+    ElMessage.error(error.message || '회원가입 중 오류가 발생했습니다')
   } finally {
     loading.value = false
   }
@@ -243,6 +324,10 @@ watch(() => props.show, (newVal) => {
       notifications: true,
       agreeToTerms: false
     })
+
+    // 사진 초기화
+    photoFile.value = null
+    photoPreview.value = props.googleUserInfo.photoURL || ''
 
     // 유효성 검사 초기화
     formRef.value?.resetFields()
@@ -316,6 +401,66 @@ watch(() => props.show, (newVal) => {
   font-weight: 500;
 }
 
+/* 프로필 사진 업로드 */
+.photo-upload-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.photo-preview {
+  width: 100px;
+  height: 100px;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px dashed #e0e0e0;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.photo-preview:hover {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fa;
+  color: #909399;
+  gap: 8px;
+}
+
+.photo-placeholder span {
+  font-size: 12px;
+}
+
+.photo-info {
+  flex: 1;
+}
+
+.photo-info p {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #606266;
+}
+
+.photo-requirements {
+  font-size: 12px;
+  color: #909399;
+}
+
 /* 개인정보 동의 */
 .privacy-agreement {
   margin-top: 24px;
@@ -353,6 +498,15 @@ watch(() => props.show, (newVal) => {
 
   .google-info {
     flex-direction: column;
+    text-align: center;
+  }
+
+  .photo-upload-container {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .photo-info {
     text-align: center;
   }
 
