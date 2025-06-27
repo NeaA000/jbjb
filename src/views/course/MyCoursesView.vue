@@ -64,317 +64,111 @@
           </div>
         </div>
 
+        <!-- 빈 상태 -->
+        <div v-else-if="currentCourses.length === 0" class="empty-state">
+          <BookOpen class="empty-icon" />
+          <h2 class="empty-title">
+            {{ activeTab === 'in-progress' ? '진행 중인 강의가 없습니다' :
+              activeTab === 'completed' ? '완료한 강의가 없습니다' :
+                  '수강 중인 강의가 없습니다' }}
+          </h2>
+          <p class="empty-description">
+            강의를 수강 신청하면 여기에 표시됩니다
+          </p>
+          <button
+              @click="router.push('/courses')"
+              class="btn-primary"
+          >
+            <Plus :size="16" />
+            강의 둘러보기
+          </button>
+        </div>
+
         <!-- 강의 목록 -->
-        <div v-else>
-          <!-- 진행 중인 강의 -->
-          <div v-if="activeTab === 'in-progress'" class="course-section">
-            <div v-if="inProgressCourses.length === 0" class="empty-state">
-              <BookOpen class="empty-icon" />
-              <h2 class="empty-title">진행 중인 강의가 없습니다</h2>
-              <p class="empty-description">새로운 강의를 시작해보세요!</p>
-              <button
-                  @click="router.push('/courses')"
-                  class="btn btn-primary"
-              >
-                <Plus :size="20" />
-                강의 둘러보기
-              </button>
+        <div v-else class="course-grid">
+          <article
+              v-for="enrollment in currentCourses"
+              :key="enrollment.id"
+              class="course-card"
+          >
+            <!-- 강의 카드 내용 -->
+            <div class="course-header">
+              <h3 class="course-title">{{ enrollment.course?.title || '제목 없음' }}</h3>
+              <div class="course-category">
+                <span class="category-path">{{ getCategoryDisplayPath(enrollment.course) }}</span>
+                <span
+                    v-if="enrollment.course?.category?.leaf"
+                    class="category-badge"
+                    :style="getCategoryStyle(enrollment.course.category.leaf)"
+                >
+                  {{ enrollment.course.category.leaf }}
+                </span>
+              </div>
             </div>
 
-            <div v-else class="course-grid">
-              <div
-                  v-for="enrollment in inProgressCourses"
-                  :key="enrollment.id"
-                  class="course-card"
-              >
-                <div class="course-card-content">
-                  <div class="course-card-header">
-                    <!-- 썸네일 -->
-                    <div class="course-thumbnail">
-                      <img
-                          v-if="enrollment.course?.thumbnail"
-                          :src="enrollment.course.thumbnail"
-                          :alt="enrollment.course.title"
-                          class="thumbnail-image"
-                      />
-                      <div v-else class="thumbnail-placeholder">
-                        <PlayCircle :size="32" />
-                      </div>
-                    </div>
+            <div class="course-body">
+              <!-- 진도 정보 -->
+              <div v-if="enrollment.progress !== undefined" class="progress-section">
+                <div class="progress-header">
+                  <span>진도율</span>
+                  <span class="progress-value">{{ enrollment.progress }}%</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" :style="`width: ${enrollment.progress}%`"></div>
+                </div>
+              </div>
 
-                    <!-- 강의 정보 -->
-                    <div class="course-info">
-                      <h3 class="course-title">
-                        {{ enrollment.course?.title }}
-                      </h3>
+              <!-- 완료 정보 -->
+              <div v-if="enrollment.status === 'completed'" class="completion-info">
+                <CheckCircle :size="16" />
+                <span>{{ formatDate(enrollment.completedAt) }} 완료</span>
+              </div>
 
-                      <!-- 카테고리 -->
-                      <div class="course-category">
-                        <span
-                            :class="getCategoryStyle(enrollment.course?.category?.leaf || '기타')"
-                            class="category-badge"
-                        >
-                          {{ getCategoryDisplayPath(enrollment.course) }}
-                        </span>
-                      </div>
-
-                      <!-- 진도율 -->
-                      <div class="progress-section">
-                        <div class="progress-header">
-                          <span class="progress-label">진도율</span>
-                          <span class="progress-value">{{ enrollment.progress }}%</span>
-                        </div>
-                        <div class="progress-bar">
-                          <div
-                              :style="{ width: `${enrollment.progress}%` }"
-                              class="progress-fill"
-                          ></div>
-                        </div>
-                      </div>
-
-                      <!-- 메타 정보 -->
-                      <div class="course-meta">
-                        <span class="meta-item">
-                          <Clock :size="14" />
-                          {{ getRemainingTime(enrollment) }}
-                        </span>
-                        <span class="meta-item">
-                          <Calendar :size="14" />
-                          {{ formatDate(enrollment.enrolledAt) }} 시작
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- 액션 버튼 -->
-                    <div class="course-actions">
-                      <button
-                          @click="continueLearning(enrollment.courseId)"
-                          class="btn btn-primary"
-                      >
-                        <Play :size="18" />
-                        이어보기
-                      </button>
-                    </div>
-                  </div>
+              <!-- 메타 정보 -->
+              <div class="course-meta">
+                <div class="meta-item">
+                  <Clock :size="14" />
+                  <span>{{ getRemainingTime(enrollment) }}</span>
+                </div>
+                <div class="meta-item">
+                  <Calendar :size="14" />
+                  <span>{{ formatDate(enrollment.enrolledAt) }} 시작</span>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- 완료한 강의 -->
-          <div v-else-if="activeTab === 'completed'" class="course-section">
-            <div v-if="completedCourses.length === 0" class="empty-state">
-              <Award class="empty-icon" />
-              <h2 class="empty-title">완료한 강의가 없습니다</h2>
-              <p class="empty-description">강의를 완료하면 수료증을 받을 수 있습니다!</p>
+            <!-- 액션 버튼 -->
+            <div class="course-actions">
+              <!-- 진행 중인 강의 -->
+              <template v-if="enrollment.status !== 'completed'">
+                <button
+                    @click="continueLearning(enrollment.courseId)"
+                    class="btn btn-primary"
+                >
+                  <PlayCircle :size="16" />
+                  이어서 학습하기
+                </button>
+              </template>
+
+              <!-- 완료한 강의 -->
+              <template v-else>
+                <button
+                    @click="viewCertificate(enrollment.courseId)"
+                    class="btn btn-success"
+                >
+                  <Award :size="16" />
+                  수료증 보기
+                </button>
+                <button
+                    @click="reviewCourse(enrollment.courseId)"
+                    class="btn btn-secondary"
+                >
+                  <Play :size="16" />
+                  다시 보기
+                </button>
+              </template>
             </div>
-
-            <div v-else class="course-grid">
-              <div
-                  v-for="enrollment in completedCourses"
-                  :key="enrollment.id"
-                  class="course-card course-card-completed"
-              >
-                <div class="course-card-content">
-                  <div class="course-card-header">
-                    <!-- 썸네일 -->
-                    <div class="course-thumbnail">
-                      <img
-                          v-if="enrollment.course?.thumbnail"
-                          :src="enrollment.course.thumbnail"
-                          :alt="enrollment.course.title"
-                          class="thumbnail-image"
-                      />
-                      <div v-else class="thumbnail-placeholder">
-                        <PlayCircle :size="32" />
-                      </div>
-                      <!-- 완료 뱃지 -->
-                      <div class="completion-badge">
-                        <CheckCircle :size="24" />
-                      </div>
-                    </div>
-
-                    <!-- 강의 정보 -->
-                    <div class="course-info">
-                      <h3 class="course-title">
-                        {{ enrollment.course?.title }}
-                      </h3>
-
-                      <!-- 카테고리 -->
-                      <div class="course-category">
-                        <span
-                            :class="getCategoryStyle(enrollment.course?.category?.leaf || '기타')"
-                            class="category-badge"
-                        >
-                          {{ getCategoryDisplayPath(enrollment.course) }}
-                        </span>
-                      </div>
-
-                      <!-- 완료 정보 -->
-                      <div class="completion-info">
-                        <CheckCircle :size="16" />
-                        {{ formatDate(enrollment.completedAt) }} 수료
-                      </div>
-
-                      <!-- 메타 정보 -->
-                      <div class="course-meta">
-                        <span class="meta-item">
-                          <Clock :size="14" />
-                          {{ enrollment.course?.duration || '30분' }}
-                        </span>
-                        <span v-if="enrollment.course?.rating" class="meta-item">
-                          <Star :size="14" class="star-icon" />
-                          {{ enrollment.course.rating.toFixed(1) }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- 액션 버튼 -->
-                    <div class="course-actions-vertical">
-                      <button
-                          @click="viewCertificate(enrollment.courseId)"
-                          class="btn btn-success"
-                      >
-                        <Award :size="18" />
-                        수료증 보기
-                      </button>
-                      <button
-                          @click="reviewCourse(enrollment.courseId)"
-                          class="btn btn-secondary"
-                      >
-                        <RefreshCw :size="18" />
-                        다시 보기
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 전체 강의 -->
-          <div v-else class="course-section">
-            <div v-if="allEnrollments.length === 0" class="empty-state">
-              <BookOpen class="empty-icon" />
-              <h2 class="empty-title">신청한 강의가 없습니다</h2>
-              <p class="empty-description">관심있는 강의를 신청해보세요!</p>
-              <button
-                  @click="router.push('/courses')"
-                  class="btn btn-primary"
-              >
-                <Plus :size="20" />
-                강의 둘러보기
-              </button>
-            </div>
-
-            <div v-else class="course-grid">
-              <div
-                  v-for="enrollment in allEnrollments"
-                  :key="enrollment.id"
-                  :class="[
-                    'course-card',
-                    enrollment.status === 'completed' || enrollment.progress === 100 ? 'course-card-completed' : ''
-                  ]"
-              >
-                <!-- 진행중/완료 강의와 동일한 구조 사용 -->
-                <div class="course-card-content">
-                  <div class="course-card-header">
-                    <!-- 썸네일 -->
-                    <div class="course-thumbnail">
-                      <img
-                          v-if="enrollment.course?.thumbnail"
-                          :src="enrollment.course.thumbnail"
-                          :alt="enrollment.course.title"
-                          class="thumbnail-image"
-                      />
-                      <div v-else class="thumbnail-placeholder">
-                        <PlayCircle :size="32" />
-                      </div>
-                      <!-- 완료 뱃지 (완료된 경우만) -->
-                      <div v-if="enrollment.status === 'completed' || enrollment.progress === 100" class="completion-badge">
-                        <CheckCircle :size="24" />
-                      </div>
-                    </div>
-
-                    <!-- 강의 정보 -->
-                    <div class="course-info">
-                      <h3 class="course-title">
-                        {{ enrollment.course?.title }}
-                      </h3>
-
-                      <!-- 카테고리 -->
-                      <div class="course-category">
-                        <span
-                            :class="getCategoryStyle(enrollment.course?.category?.leaf || '기타')"
-                            class="category-badge"
-                        >
-                          {{ getCategoryDisplayPath(enrollment.course) }}
-                        </span>
-                      </div>
-
-                      <!-- 진도율 또는 완료 정보 -->
-                      <div v-if="enrollment.status === 'completed' || enrollment.progress === 100" class="completion-info">
-                        <CheckCircle :size="16" />
-                        {{ formatDate(enrollment.completedAt) }} 수료
-                      </div>
-                      <div v-else class="progress-section">
-                        <div class="progress-header">
-                          <span class="progress-label">진도율</span>
-                          <span class="progress-value">{{ enrollment.progress }}%</span>
-                        </div>
-                        <div class="progress-bar">
-                          <div
-                              :style="{ width: `${enrollment.progress}%` }"
-                              class="progress-fill"
-                          ></div>
-                        </div>
-                      </div>
-
-                      <!-- 메타 정보 -->
-                      <div class="course-meta">
-                        <span class="meta-item">
-                          <Clock :size="14" />
-                          {{ enrollment.status === 'completed' ? enrollment.course?.duration || '30분' : getRemainingTime(enrollment) }}
-                        </span>
-                        <span class="meta-item">
-                          <Calendar :size="14" />
-                          {{ formatDate(enrollment.enrolledAt) }} 시작
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- 액션 버튼 -->
-                    <div class="course-actions">
-                      <button
-                          v-if="enrollment.status !== 'completed' && enrollment.progress < 100"
-                          @click="continueLearning(enrollment.courseId)"
-                          class="btn btn-primary"
-                      >
-                        <Play :size="18" />
-                        이어보기
-                      </button>
-                      <div v-else class="course-actions-vertical">
-                        <button
-                            @click="viewCertificate(enrollment.courseId)"
-                            class="btn btn-success"
-                        >
-                          <Award :size="18" />
-                          수료증 보기
-                        </button>
-                        <button
-                            @click="reviewCourse(enrollment.courseId)"
-                            class="btn btn-secondary"
-                        >
-                          <RefreshCw :size="18" />
-                          다시 보기
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          </article>
         </div>
       </div>
     </main>
@@ -411,10 +205,6 @@ const authStore = useAuthStore()
 const isLoading = ref(false)
 const activeTab = ref('in-progress')
 
-// 캐시 관련 상수
-const CACHE_DURATION = 5 * 60 * 1000 // 5분
-const lastFetchTime = ref(null)
-
 // 탭 설정
 const tabs = [
   { id: 'in-progress', label: '진행 중' },
@@ -439,6 +229,20 @@ const completedCourses = computed(() => {
 // 전체 강의
 const allEnrollments = computed(() => {
   return courseStore.enrollments
+})
+
+// 현재 탭의 강의들
+const currentCourses = computed(() => {
+  switch (activeTab.value) {
+    case 'in-progress':
+      return inProgressCourses.value
+    case 'completed':
+      return completedCourses.value
+    case 'all':
+      return allEnrollments.value
+    default:
+      return []
+  }
 })
 
 // 탭별 강의 수
@@ -516,75 +320,11 @@ const reviewCourse = (courseId) => {
   router.push(`/learning/${courseId}`)
 }
 
-// 캐시가 유효한지 확인
-const isCacheValid = () => {
-  if (!lastFetchTime.value) return false
-  const now = Date.now()
-  return (now - lastFetchTime.value) < CACHE_DURATION
-}
-
-// 최적화된 데이터 로드
-const loadMyCoursesOptimized = async () => {
-  try {
-    isLoading.value = true
-
-    // 캐시가 유효하고 데이터가 있으면 로딩 스킵
-    if (isCacheValid() && courseStore.enrollments.length > 0) {
-      console.log('Using cached data')
-      return
-    }
-
-    // Store에 최적화된 메서드가 있다면 사용
-    if (typeof courseStore.loadMyCoursesOptimized === 'function') {
-      await courseStore.loadMyCoursesOptimized()
-    } else {
-      // 병렬 처리로 데이터 로드
-      const promises = []
-
-      // enrollment 데이터는 항상 필요
-      promises.push(courseStore.loadUserEnrollments())
-
-      // course 데이터가 없을 때만 로드
-      if (courseStore.courses.length === 0) {
-        promises.push(courseStore.loadCoursesFromFlask())
-      }
-
-      // 모든 Promise를 병렬로 실행
-      const results = await Promise.allSettled(promises)
-
-      // 에러 처리
-      const errors = results.filter(result => result.status === 'rejected')
-      if (errors.length > 0) {
-        console.error('Some data failed to load:', errors)
-        // 부분적 실패는 허용하고 계속 진행
-      }
-    }
-
-    // 캐시 시간 업데이트
-    lastFetchTime.value = Date.now()
-
-  } catch (error) {
-    console.error('Failed to load courses:', error)
-    ElMessage.error('강의 목록을 불러오는데 실패했습니다.')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 새로고침 (캐시 무시)
+// 새로고침
 const refreshCourses = async () => {
   try {
     isLoading.value = true
-
-    // 캐시 무효화
-    lastFetchTime.value = null
-
-    // 강제 새로고침
     await courseStore.loadUserEnrollments()
-
-    // 캐시 시간 업데이트
-    lastFetchTime.value = Date.now()
-
     ElMessage.success('강의 목록을 새로고침했습니다.')
   } catch (error) {
     ElMessage.error('새로고침에 실패했습니다.')
@@ -593,54 +333,64 @@ const refreshCourses = async () => {
   }
 }
 
-// 마운트
-onMounted(async () => {
-  await loadMyCoursesOptimized()
+// 내 강의 로드 (수정됨 - loadCourses 대신 올바른 메서드 사용)
+const loadMyCourses = async () => {
+  try {
+    isLoading.value = true
+
+    // 최적화된 메서드가 있으면 사용, 없으면 기본 메서드 사용
+    if (typeof courseStore.loadMyCoursesOptimized === 'function') {
+      await courseStore.loadMyCoursesOptimized()
+    } else {
+      // 기본 메서드: enrollments만 로드
+      await courseStore.loadUserEnrollments()
+    }
+
+    console.log('✅ 내 강의 로드 완료:', courseStore.enrollments.length)
+  } catch (error) {
+    console.error('내 강의 로드 오류:', error)
+    ElMessage.error('강의 목록을 불러올 수 없습니다.')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 마운트 시 로드
+onMounted(() => {
+  loadMyCourses()
 })
 </script>
 
 <style scoped>
-/* =================== 페이지 구조 =================== */
+/* =================== 기본 레이아웃 =================== */
 .page-wrapper {
   min-height: 100vh;
-  background: var(--bg-primary, #f8fafc);
+  background: var(--bg-primary, #ffffff);
   display: flex;
   flex-direction: column;
-}
-
-/* =================== 헤더 =================== */
-.page-header {
-  background: var(--bg-secondary, #ffffff);
-  border-bottom: 1px solid var(--border-primary, #e5e7eb);
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
-  position: sticky;
-  top: 0;
-  z-index: 30;
 }
 
 .container {
   max-width: 1280px;
   margin: 0 auto;
   padding: 0 1rem;
+  width: 100%;
 }
 
-@media (min-width: 640px) {
-  .container {
-    padding: 0 1.5rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .container {
-    padding: 0 2rem;
-  }
+/* =================== 헤더 =================== */
+.page-header {
+  background: var(--bg-primary, #ffffff);
+  border-bottom: 1px solid var(--border-primary, #e5e7eb);
+  position: sticky;
+  top: 0;
+  z-index: 40;
 }
 
 .header-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 4rem;
+  height: 3.5rem;
 }
 
 .header-left {
@@ -649,50 +399,59 @@ onMounted(async () => {
   gap: 1rem;
 }
 
-.back-button,
-.refresh-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-lg, 0.5rem);
+.back-button, .refresh-button {
+  padding: 0.5rem;
   border: none;
-  background: transparent;
-  color: var(--text-secondary, #6b7280);
+  background: none;
   cursor: pointer;
+  color: var(--text-secondary, #6b7280);
+  border-radius: var(--radius-md, 0.375rem);
   transition: all var(--transition-fast, 0.15s ease);
 }
 
-.back-button:hover,
-.refresh-button:hover {
-  background: var(--bg-tertiary, #f3f4f6);
-  color: var(--text-primary, #111827);
+.back-button:hover, .refresh-button:hover {
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-primary, #374151);
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .page-title {
   font-size: var(--text-xl, 1.25rem);
   font-weight: var(--font-semibold, 600);
   color: var(--text-primary, #111827);
-  margin: 0;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* =================== 탭 네비게이션 =================== */
 .tab-navigation {
-  background: var(--bg-secondary, #ffffff);
+  background: var(--bg-primary, #ffffff);
   border-bottom: 1px solid var(--border-primary, #e5e7eb);
   position: sticky;
-  top: 4rem;
-  z-index: 20;
+  top: 3.5rem;
+  z-index: 30;
 }
 
 .tab-list {
   display: flex;
   gap: 2rem;
+  height: 3rem;
 }
 
 .tab-button {
-  padding: 1rem 0.25rem;
+  padding: 0 0.5rem;
+  height: 100%;
   border: none;
   background: none;
   font-size: var(--text-sm, 0.875rem);
@@ -781,11 +540,6 @@ onMounted(async () => {
   color: var(--text-secondary, #6b7280);
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 /* =================== 빈 상태 =================== */
 .empty-state {
   text-align: center;
@@ -801,115 +555,63 @@ onMounted(async () => {
 
 .empty-title {
   font-size: var(--text-xl, 1.25rem);
-  font-weight: var(--font-medium, 500);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-primary, #111827);
-  margin: 0 0 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .empty-description {
   color: var(--text-secondary, #6b7280);
-  margin: 0 0 1.5rem;
+  margin-bottom: 2rem;
 }
 
 /* =================== 강의 그리드 =================== */
-.course-section {
-  width: 100%;
-}
-
 .course-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
 }
 
 /* =================== 강의 카드 =================== */
 .course-card {
-  background: var(--bg-secondary, #ffffff);
-  border-radius: var(--radius-2xl, 1rem);
-  box-shadow: var(--shadow-base, 0 1px 3px 0 rgba(0, 0, 0, 0.1));
-  overflow: hidden;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: var(--radius-lg, 0.5rem);
+  padding: 1.5rem;
   transition: all var(--transition-base, 0.3s ease);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .course-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  border-color: var(--border-secondary, #d1d5db);
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
 }
 
-.course-card-completed {
-  border: 2px solid var(--color-success-light, #d1fae5);
-}
-
-.course-card-content {
-  padding: 1.5rem;
-}
-
-.course-card-header {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-}
-
-/* =================== 썸네일 =================== */
-.course-thumbnail {
-  flex-shrink: 0;
-  width: 12rem;
-  height: 6.75rem;
-  background: var(--bg-tertiary, #f3f4f6);
-  border-radius: var(--radius-lg, 0.5rem);
-  overflow: hidden;
-  position: relative;
-}
-
-.thumbnail-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.thumbnail-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary, #9ca3af);
-}
-
-.completion-badge {
-  position: absolute;
-  inset: 0;
-  background: rgba(16, 185, 129, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.completion-badge svg {
-  background: white;
-  border-radius: var(--radius-full, 9999px);
-  padding: 0.5rem;
-  color: var(--color-success, #10b981);
-  width: 2.5rem;
-  height: 2.5rem;
-}
-
-/* =================== 강의 정보 =================== */
-.course-info {
-  flex: 1;
-  min-width: 0;
+/* =================== 강의 헤더 =================== */
+.course-header {
+  margin-bottom: 0.5rem;
 }
 
 .course-title {
   font-size: var(--text-lg, 1.125rem);
   font-weight: var(--font-semibold, 600);
   color: var(--text-primary, #111827);
-  margin: 0 0 0.5rem;
-  line-height: 1.25;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
 }
 
 .course-category {
-  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.category-path {
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--text-secondary, #6b7280);
 }
 
 .category-badge {
@@ -988,12 +690,8 @@ onMounted(async () => {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-}
-
-.course-actions-vertical {
-  display: flex;
-  flex-direction: column;
   gap: 0.5rem;
+  margin-top: auto;
 }
 
 /* =================== 버튼 스타일 =================== */
@@ -1018,9 +716,16 @@ onMounted(async () => {
 }
 
 .btn-primary:hover {
-  background: var(--accent-hover, #2563eb);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
+  background: var(--accent-primary-dark, #2563eb);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-primary, #374151);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-tertiary, #e5e7eb);
 }
 
 .btn-success {
@@ -1030,103 +735,25 @@ onMounted(async () => {
 
 .btn-success:hover {
   background: var(--color-success-dark, #059669);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05));
 }
 
-.btn-secondary {
-  background: var(--bg-tertiary, #f3f4f6);
-  color: var(--text-primary, #374151);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-quaternary, #e5e7eb);
-  transform: translateY(-1px);
-}
-
-/* =================== 반응형 디자인 =================== */
+/* =================== 반응형 =================== */
 @media (max-width: 768px) {
-  .page-title {
-    font-size: var(--text-lg, 1.125rem);
-  }
-
-  .tab-list {
-    gap: 1.5rem;
-  }
-
-  .course-card-header {
-    flex-direction: column;
-  }
-
-  .course-thumbnail {
-    width: 100%;
-    height: 9rem;
-  }
-
-  .course-actions {
-    width: 100%;
-    margin-top: 1rem;
-  }
-
-  .course-actions-vertical {
-    flex-direction: row;
-    width: 100%;
-  }
-
-  .course-actions-vertical .btn {
-    flex: 1;
-  }
-
-  .btn {
-    width: 100%;
-    justify-content: center;
-  }
-}
-
-@media (max-width: 480px) {
-  .container {
-    padding: 0 0.75rem;
+  .course-grid {
+    grid-template-columns: 1fr;
   }
 
   .tab-list {
     gap: 1rem;
   }
 
-  .tab-button {
-    font-size: var(--text-xs, 0.75rem);
-  }
-
-  .course-meta {
+  .course-actions {
     flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
-}
-
-/* =================== 접근성 =================== */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+    width: 100%;
   }
 
-  .course-card:hover {
-    transform: none;
+  .btn {
+    width: 100%;
   }
-}
-
-/* =================== 포커스 스타일 =================== */
-button:focus-visible,
-.btn:focus-visible {
-  outline: 2px solid var(--accent-primary, #3b82f6);
-  outline-offset: 2px;
-}
-
-.course-card:focus-within {
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 </style>

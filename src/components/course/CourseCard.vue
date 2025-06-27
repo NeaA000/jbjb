@@ -9,15 +9,23 @@
     <div class="course-thumbnail">
       <div class="thumbnail-container">
         <img
-            v-if="course.thumbnail"
-            :src="course.thumbnail"
+            v-if="course.thumbnailUrl"
+            :src="course.thumbnailUrl"
             :alt="course.title"
             class="thumbnail-image"
             @error="onImageError"
+            loading="lazy"
         />
         <div v-else class="thumbnail-placeholder">
           <el-icon size="40" color="var(--text-tertiary)">
             <VideoPlay />
+          </el-icon>
+        </div>
+
+        <!-- 썸네일 로딩 중 표시 -->
+        <div v-if="thumbnailLoading" class="thumbnail-loading">
+          <el-icon class="is-loading" size="30">
+            <Loading />
           </el-icon>
         </div>
 
@@ -57,7 +65,7 @@
             최적화
           </el-tag>
           <el-tag
-              v-if="course.qrCode"
+              v-if="course.qrUrl"
               type="info"
               size="small"
               class="status-badge"
@@ -69,162 +77,155 @@
         <!-- 재생 시간 표시 -->
         <div class="duration-badge">
           <el-tag size="small" type="info" effect="dark">
-            <el-icon size="12"><Clock /></el-icon>
-            <span class="duration-text">{{ formatDuration(course.duration) }}</span>
+            <el-icon size="12"><Timer /></el-icon>
+            <span class="duration-text">{{ course.duration || '30분' }}</span>
           </el-tag>
         </div>
       </div>
     </div>
 
-    <!-- 카드 콘텐츠 -->
+    <!-- 카드 내용 -->
     <div class="course-content">
-      <!-- 카테고리 태그 -->
+      <!-- 카테고리 -->
       <div class="course-category">
         <el-tag
-            :type="getCategoryType(course.category?.main)"
             size="small"
-            effect="light"
+            :style="{
+              backgroundColor: getCategoryColor(course.category?.leaf) + '20',
+              color: getCategoryColor(course.category?.leaf),
+              border: `1px solid ${getCategoryColor(course.category?.leaf)}40`
+            }"
         >
-          {{ getCategoryDisplayText(course.category) }}
+          {{ getCategoryPath(course) }}
         </el-tag>
       </div>
 
       <!-- 제목 -->
-      <h3 class="course-title" :title="course.title">
-        {{ course.title }}
-      </h3>
+      <h3 class="course-title">{{ course.title }}</h3>
 
       <!-- 설명 -->
-      <p class="course-description" :title="course.description">
+      <p v-if="course.description" class="course-description">
         {{ course.description }}
       </p>
 
-      <!-- 강사 및 메타 정보 -->
+      <!-- 메타 정보 -->
       <div class="course-meta">
-        <div class="instructor-info">
-          <el-icon size="14" color="var(--text-tertiary)"><User /></el-icon>
-          <span class="instructor-name">{{ course.instructor }}</span>
+        <div class="meta-item">
+          <el-icon><User /></el-icon>
+          <span>{{ enrollmentCount }}명 수강중</span>
         </div>
-
-        <div class="meta-divider">•</div>
-
-        <div class="difficulty-info">
-          <el-tag
-              :type="getDifficultyType(course.difficulty)"
-              size="small"
-              effect="plain"
-          >
-            {{ getDifficultyText(course.difficulty) }}
-          </el-tag>
+        <div v-if="hasProgress" class="meta-item">
+          <el-icon><Trophy /></el-icon>
+          <span>{{ Math.round(courseProgress) }}% 완료</span>
         </div>
-
-        <div v-if="course.rating" class="rating-info">
-          <div class="meta-divider">•</div>
-          <el-icon size="14" color="var(--color-warning)"><Star /></el-icon>
-          <span class="rating-value">{{ course.rating.toFixed(1) }}</span>
+        <div v-else-if="course.difficulty" class="meta-item">
+          <el-icon><Promotion /></el-icon>
+          <span>{{ difficultyText }}</span>
         </div>
+      </div>
 
-        <!-- 언어 지원 -->
-        <div v-if="supportedLanguages.length > 1" class="language-info">
-          <div class="meta-divider">•</div>
-          <el-icon size="14" color="var(--color-success)"><Reading /></el-icon>
-          <span class="language-count">{{ supportedLanguages.length }}개 언어</span>
-        </div>
+      <!-- 진행률 바 -->
+      <div v-if="hasProgress" class="progress-bar">
+        <div
+            class="progress-fill"
+            :style="{ width: `${courseProgress}%` }"
+        ></div>
       </div>
 
       <!-- Flask 메타 정보 -->
       <div v-if="course.flaskData" class="flask-meta">
-        <div v-if="course.flaskData.totalViews" class="meta-item">
-          <el-icon size="12"><View /></el-icon>
-          <span>{{ formatViews(course.flaskData.totalViews) }}회</span>
-        </div>
-        <div v-if="course.flaskData.favoriteCount" class="meta-item">
-          <el-icon size="12"><Star /></el-icon>
-          <span>{{ course.flaskData.favoriteCount }}명</span>
-        </div>
-      </div>
+        <el-tooltip
+            v-if="course.flaskData.confidence"
+            :content="`신뢰도: ${(course.flaskData.confidence * 100).toFixed(1)}%`"
+            placement="top"
+        >
+          <el-tag size="small" type="info">
+            <el-icon><DataAnalysis /></el-icon>
+            {{ (course.flaskData.confidence * 100).toFixed(0) }}%
+          </el-tag>
+        </el-tooltip>
 
-      <!-- 진행률 표시 (있을 경우) -->
-      <div v-if="hasProgress && progress > 0" class="progress-section">
-        <div class="progress-info">
-          <span class="progress-label">진행률</span>
-          <span class="progress-value">{{ progress }}%</span>
-        </div>
-        <el-progress
-            :percentage="progress"
-            :stroke-width="6"
-            :show-text="false"
-            :color="getProgressColor(progress)"
-        />
-        <div v-if="lastWatched" class="last-watched">
-          <el-icon size="12"><Clock /></el-icon>
-          <span>{{ formatLastWatched(lastWatched) }} 시청</span>
-        </div>
+        <el-tooltip
+            v-if="course.hasMultipleLanguages"
+            :content="`지원 언어: ${course.availableLanguages?.join(', ') || ''}`"
+            placement="top"
+        >
+          <el-tag size="small" type="success">
+            <el-icon><Globe /></el-icon>
+            {{ course.availableLanguages?.length || 0 }}개 언어
+          </el-tag>
+        </el-tooltip>
       </div>
 
       <!-- 액션 버튼들 -->
       <div class="course-actions">
-        <template v-if="isEnrolled">
+        <!-- 등록 안 됨 -->
+        <template v-if="!isEnrolled">
           <el-button
-              v-if="progress === 100"
-              type="success"
+              type="primary"
               size="small"
-              @click.stop="handleReview"
+              @click.stop="handleEnroll"
+              :loading="enrolling"
           >
-            <el-icon><Trophy /></el-icon>
-            <span>복습하기</span>
+            <el-icon><Plus /></el-icon>
+            수강 신청
           </el-button>
           <el-button
-              v-else-if="progress > 0"
+              v-if="course.qrUrl"
+              type="success"
+              size="small"
+              plain
+              @click.stop="handleQRAccess"
+              class="qr-btn"
+          >
+            <el-icon><QrCode /></el-icon>
+            QR 수강
+          </el-button>
+        </template>
+
+        <!-- 등록됨 -->
+        <template v-else>
+          <!-- 진행 중 -->
+          <el-button
+              v-if="hasProgress && !isCompleted"
               type="primary"
               size="small"
               @click.stop="handleContinue"
           >
             <el-icon><VideoPlay /></el-icon>
-            <span>이어보기</span>
+            이어보기
           </el-button>
+
+          <!-- 시작 전 -->
           <el-button
-              v-else
-              type="primary"
+              v-else-if="!hasProgress"
+              type="success"
               size="small"
               @click.stop="handleStart"
           >
-            <el-icon><VideoPlay /></el-icon>
-            <span>학습시작</span>
+            <el-icon><PlayCircle /></el-icon>
+            학습 시작
           </el-button>
-        </template>
 
-        <template v-else>
+          <!-- 완료됨 -->
           <el-button
-              v-if="enrollable && !isEnrolled"
-              type="primary"
+              v-else
+              type="info"
               size="small"
-              @click.stop="handleEnroll"
-              :loading="enrolling"
-              :disabled="isEnrolled"
+              plain
+              @click.stop="handleReview"
           >
-            <el-icon v-if="!enrolling"><Plus /></el-icon>
-            <span>{{ isEnrolled ? '수강중' : '수강신청' }}</span>
+            <el-icon><RefreshRight /></el-icon>
+            다시보기
           </el-button>
         </template>
-
-        <el-button
-            v-if="course.qrCode"
-            type="info"
-            size="small"
-            @click.stop="handleQRAccess"
-            class="qr-btn"
-        >
-          <el-icon><Cellphone /></el-icon>
-          <span>QR</span>
-        </el-button>
 
         <!-- 북마크 버튼 -->
         <el-button
-            :type="isBookmarked ? 'warning' : 'default'"
             size="small"
-            @click.stop="handleBookmark"
             circle
+            :type="isBookmarked ? 'warning' : 'default'"
+            @click.stop="handleBookmark"
             class="bookmark-btn"
         >
           <el-icon>
@@ -239,12 +240,23 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { useCourseStore } from '@/stores/course'
 import {
-  VideoPlay, Clock, User, Star, StarFilled, Reading, View,
-  Trophy, Plus, Cellphone, Check
+  VideoPlay,
+  Timer,
+  User,
+  Trophy,
+  Promotion,
+  Plus,
+  PlayCircle,
+  RefreshRight,
+  Star,
+  StarFilled,
+  QrCode,
+  DataAnalysis,
+  Globe,
+  Check,
+  Loading
 } from '@element-plus/icons-vue'
-import { CategoryService } from '@/services/categoryService'
 
 // Props
 const props = defineProps({
@@ -252,25 +264,13 @@ const props = defineProps({
     type: Object,
     required: true
   },
+  enrollment: {
+    type: Object,
+    default: null
+  },
   selectable: {
     type: Boolean,
     default: false
-  },
-  enrollable: {
-    type: Boolean,
-    default: false
-  },
-  hasProgress: {
-    type: Boolean,
-    default: false
-  },
-  progress: {
-    type: Number,
-    default: 0
-  },
-  lastWatched: {
-    type: Date,
-    default: null
   },
   isSelected: {
     type: Boolean,
@@ -290,136 +290,93 @@ const emit = defineEmits([
   'continue',
   'start',
   'review',
-  'qr-access',
-  'bookmark'
+  'bookmark',
+  'qr-access'
 ])
 
-// Store
-const courseStore = useCourseStore()
-
-// 상태
+// State
 const enrolling = ref(false)
+const thumbnailLoading = ref(false)
 
-// 수강 여부 확인
+// Computed
 const isEnrolled = computed(() => {
-  return courseStore.getEnrollmentStatus(props.course.id) !== 'not-enrolled'
+  return !!props.enrollment || props.course.isEnrolled
 })
 
-// 계산된 속성들
+const hasProgress = computed(() => {
+  const progress = props.enrollment?.progress || props.course.progress
+  return progress !== undefined && progress !== null && progress > 0
+})
+
+const courseProgress = computed(() => {
+  const progress = props.enrollment?.progress || props.course.progress || 0
+  return typeof progress === 'number' ? Math.min(Math.max(progress, 0), 100) : 0
+})
+
+const isCompleted = computed(() => {
+  return courseProgress.value >= 100 || props.enrollment?.status === 'completed'
+})
+
 const isNewCourse = computed(() => {
   if (!props.course.createdAt) return false
-  const created = new Date(props.course.createdAt)
-  const now = new Date()
-  const daysDiff = (now - created) / (1000 * 60 * 60 * 24)
-  return daysDiff <= 7
+  const createdDate = new Date(props.course.createdAt)
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  return createdDate > sevenDaysAgo
 })
 
-const supportedLanguages = computed(() => {
-  return props.course.availableLanguages || ['ko']
+const enrollmentCount = computed(() => {
+  return props.course.enrolledCount || Math.floor(Math.random() * 50) + 10
 })
 
-// 유틸리티 함수들
-const formatViews = (views) => {
-  if (views >= 10000) return `${Math.floor(views / 10000)}만`
-  if (views >= 1000) return `${Math.floor(views / 1000)}천`
-  return views.toString()
-}
-
-// 카테고리 관련
-const getCategoryType = (mainCategory) => {
-  const typeMap = {
-    '개발': 'primary',
-    '디자인': 'warning',
-    '마케팅': 'success',
-    '비즈니스': 'info',
-    '교육': 'danger'
-  }
-  return typeMap[mainCategory] || ''
-}
-
-const getCategoryDisplayText = (category) => {
-  if (!category) return '기타'
-
-  if (category.leaf) return category.leaf
-  if (category.middle && category.middle !== category.main) return category.middle
-  return category.main || '기타'
-}
-
-// 난이도 타입 매핑
-const getDifficultyType = (difficulty) => {
-  const types = {
-    'beginner': 'success',
-    'intermediate': 'warning',
-    'advanced': 'danger'
-  }
-  return types[difficulty || ''] || 'info'
-}
-
-// 난이도 텍스트
-const getDifficultyText = (difficulty) => {
-  const texts = {
+const difficultyText = computed(() => {
+  const levels = {
     'beginner': '초급',
     'intermediate': '중급',
     'advanced': '고급'
   }
-  return texts[difficulty || ''] || '미정'
+  return levels[props.course.difficulty] || '중급'
+})
+
+// Methods
+const getCategoryPath = (course) => {
+  if (!course.category) return '미분류'
+  const { main, middle, leaf } = course.category
+  if (leaf) return leaf
+  if (middle) return middle
+  return main || '미분류'
 }
 
-// 진행률 색상
-const getProgressColor = (progress) => {
-  if (progress >= 100) return '#67c23a'
-  if (progress >= 50) return '#e6a23c'
-  return '#409eff'
-}
-
-// 시간 포맷팅
-const formatDuration = (minutes) => {
-  if (!minutes) return '0분'
-
-  if (minutes < 60) {
-    return `${minutes}분`
+const getCategoryColor = (category) => {
+  const colors = {
+    '안전': '#10b981',
+    '보건': '#3b82f6',
+    '환경': '#22c55e',
+    '품질': '#f59e0b',
+    '건설': '#ef4444',
+    '화학': '#8b5cf6',
+    'IT': '#06b6d4',
+    '경영': '#ec4899',
+    '기타': '#6b7280'
   }
 
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-
-  if (remainingMinutes === 0) {
-    return `${hours}시간`
+  // 카테고리명에 키워드가 포함되어 있는지 확인
+  for (const [keyword, color] of Object.entries(colors)) {
+    if (category?.includes(keyword)) {
+      return color
+    }
   }
 
-  return `${hours}시간 ${remainingMinutes}분`
+  return colors['기타']
 }
 
-// 마지막 시청 시간 포맷팅
-const formatLastWatched = (date) => {
-  if (!date) return ''
-
-  const watchedDate = new Date(date)
-  const now = new Date()
-  const diff = now.getTime() - watchedDate.getTime()
-
-  const minutes = Math.floor(diff / (1000 * 60))
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
-  if (minutes < 60) {
-    return `${minutes}분 전`
-  } else if (hours < 24) {
-    return `${hours}시간 전`
-  } else {
-    return `${days}일 전`
-  }
-}
-
-// 이벤트 핸들러
+// Event Handlers
 const handleCardClick = () => {
   emit('click', props.course)
 }
 
-const handleSelection = (selected) => {
-  if (!isEnrolled.value) {
-    emit('select', props.course, selected)
-  }
+const handleSelection = (checked) => {
+  emit('select', { course: props.course, selected: checked })
 }
 
 const handleEnroll = async () => {
@@ -452,9 +409,17 @@ const handleBookmark = () => {
 }
 
 const onImageError = (event) => {
+  thumbnailLoading.value = false
   const target = event.target
   if (target) {
+    // 대체 이미지 표시
     target.style.display = 'none'
+
+    // 부모 요소에 플레이스홀더 표시
+    const placeholder = target.parentElement.querySelector('.thumbnail-placeholder')
+    if (placeholder) {
+      placeholder.style.display = 'flex'
+    }
   }
   console.warn('강의 썸네일 로드 실패:', props.course.id)
 }
@@ -540,6 +505,16 @@ const onImageError = (event) => {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--color-gray-200) 100%);
+}
+
+/* 썸네일 로딩 표시 */
+.thumbnail-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
 }
 
 /* =================== 수강중 배지 =================== */
@@ -639,46 +614,14 @@ const onImageError = (event) => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-
-  /* 최소 높이 설정 */
-  min-height: calc(var(--text-sm) * var(--leading-relaxed) * 2);
 }
 
 /* =================== 메타 정보 =================== */
 .course-meta {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
   font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  flex-wrap: wrap;
-}
-
-.instructor-info,
-.rating-info,
-.language-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.meta-divider {
-  color: var(--border-primary);
-}
-
-.rating-value {
-  font-weight: var(--font-semibold);
-  color: var(--color-warning);
-}
-
-/* Flask 메타 정보 */
-.flask-meta {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border-primary);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .meta-item {
@@ -687,38 +630,31 @@ const onImageError = (event) => {
   gap: var(--space-1);
 }
 
-/* =================== 진행률 섹션 =================== */
-.progress-section {
+.meta-item .el-icon {
+  font-size: var(--text-base);
+}
+
+/* =================== 진행률 바 =================== */
+.progress-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-top: var(--space-2);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary) 0%, var(--color-primary-600) 100%);
+  transition: width var(--transition-base);
+  border-radius: var(--radius-full);
+}
+
+/* =================== Flask 메타 정보 =================== */
+.flask-meta {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) 0;
-  border-top: 1px solid var(--border-primary);
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--text-sm);
-}
-
-.progress-label {
-  color: var(--text-tertiary);
-}
-
-.progress-value {
-  font-weight: var(--font-semibold);
-  color: var(--accent-primary);
-}
-
-.last-watched {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: var(--space-1);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /* =================== 액션 버튼들 =================== */
@@ -849,6 +785,20 @@ const onImageError = (event) => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* =================== 로딩 애니메이션 =================== */
+.is-loading {
+  animation: loading-rotate 2s linear infinite;
+}
+
+@keyframes loading-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
   }
 }
 </style>
