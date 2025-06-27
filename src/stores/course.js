@@ -14,6 +14,10 @@ export const useCourseStore = defineStore('course', () => {
     const lastLoadTime = ref(null)
     const isLoadingFromCache = ref(false)
 
+    // 캐시 관련 상태 추가
+    const lastEnrollmentLoadTime = ref(null)
+    const CACHE_DURATION = 5 * 60 * 1000 // 5분
+
     // 선택된 강의 수
     const selectedCount = computed(() => selectedCourseIds.value.length)
 
@@ -23,6 +27,12 @@ export const useCourseStore = defineStore('course', () => {
             .map(id => courses.value.find(course => course.id === id))
             .filter(course => course !== undefined && course !== null)
     })
+
+    // 캐시 유효성 검사
+    const isCacheValid = (cacheTime, duration = CACHE_DURATION) => {
+        if (!cacheTime) return false
+        return (Date.now() - cacheTime) < duration
+    }
 
     // Firestore에서 강의 목록 로드 (캐시 적용)
     const loadCoursesFromFirestore = async (forceRefresh = false) => {
@@ -111,18 +121,79 @@ export const useCourseStore = defineStore('course', () => {
     const clearCache = () => {
         CourseService.clearCache()
         lastLoadTime.value = null
+        lastEnrollmentLoadTime.value = null
         console.log('🗑️ 캐시 초기화 완료')
     }
 
-    // 사용자 수강 정보 로드
-    const loadUserEnrollments = async () => {
+    /**
+     * 내 강의실 데이터를 최적화된 방식으로 로드
+     * - 병렬 처리
+     * - 캐싱 적용
+     * - 중복 방지
+     */
+    const loadMyCoursesOptimized = async (forceRefresh = false) => {
+        try {
+            // 캐시가 유효하고 강제 새로고침이 아닌 경우
+            if (!forceRefresh &&
+                isCacheValid(lastEnrollmentLoadTime.value) &&
+                enrollments.value.length > 0) {
+                console.log('📦 캐시된 enrollment 데이터 사용')
+                return enrollments.value
+            }
+
+            isLoading.value = true
+            error.value = null
+
+            // 병렬로 필요한 데이터 로드
+            const promises = []
+
+            // enrollment 데이터는 항상 필요
+            promises.push(loadUserEnrollmentsOptimized())
+
+            // courses가 비어있거나 캐시가 오래된 경우만 로드
+            if (courses.value.length === 0 || !isCacheValid(lastLoadTime.value)) {
+                promises.push(loadCoursesFromFirestore())
+            }
+
+            // 모든 Promise를 병렬로 실행
+            const results = await Promise.allSettled(promises)
+
+            // 에러 처리 (부분 실패 허용)
+            const errors = results.filter(result => result.status === 'rejected')
+            if (errors.length > 0) {
+                console.warn('일부 데이터 로드 실패:', errors)
+            }
+
+            // 캐시 시간 업데이트
+            lastEnrollmentLoadTime.value = Date.now()
+
+            return enrollments.value
+        } catch (err) {
+            console.error('❌ 최적화된 로드 실패:', err)
+            error.value = err.message
+            throw err
+        } finally {
+            isLoading.value = false
+        }
+    }
+
+    /**
+     * 사용자 수강 정보만 빠르게 로드 (캐시 적용)
+     */
+    const loadUserEnrollmentsOptimized = async () => {
         try {
             const authStore = useAuthStore()
             const userId = authStore.userId
 
             if (!userId) {
                 enrollments.value = []
-                return
+                return []
+            }
+
+            // 캐시 확인
+            if (isCacheValid(lastEnrollmentLoadTime.value, 3 * 60 * 1000)) { // 3분
+                console.log('📦 캐시된 enrollment 사용')
+                return enrollments.value
             }
 
             isLoading.value = true
@@ -130,20 +201,90 @@ export const useCourseStore = defineStore('course', () => {
             // CourseService에서 수강 정보 가져오기
             const userEnrollments = await CourseService.getUserEnrollments(userId)
 
-            // 강의 정보와 병합
-            enrollments.value = userEnrollments.map(enrollment => ({
-                ...enrollment,
-                course: courses.value.find(c => c.id === enrollment.courseId)
-            }))
+            // 이미 로드된 courses가 있으면 병합
+            if (courses.value.length > 0) {
+                enrollments.value = userEnrollments.map(enrollment => ({
+                    ...enrollment,
+                    course: courses.value.find(c => c.id === enrollment.courseId)
+                }))
+            } else {
+                // courses가 없으면 enrollment 정보만 저장
+                enrollments.value = userEnrollments
+            }
 
+            lastEnrollmentLoadTime.value = Date.now()
             console.log('✅ 수강 정보 로드 성공:', enrollments.value.length)
+
+            return enrollments.value
         } catch (err) {
             console.error('❌ 수강 정보 로드 실패:', err)
             error.value = err.message
             enrollments.value = []
+            return []
         } finally {
             isLoading.value = false
         }
+    }
+
+    // 사용자 수강 정보 로드
+    const loadUserEnrollments = async () => {
+        return loadUserEnrollmentsOptimized()
+    }
+
+    /**
+     * 필요한 강의 정보만 로드
+     */
+    const loadRequiredCourses = async (courseIds) => {
+        try {
+            if (!courseIds || courseIds.length === 0) return
+
+            // 이미 로드된 강의 확인
+            const loadedIds = new Set(courses.value.map(c => c.id))
+            const missingIds = courseIds.filter(id => !loadedIds.has(id))
+
+            if (missingIds.length === 0) {
+                console.log('✅ 모든 강의가 이미 로드됨')
+                return
+            }
+
+            isLoading.value = true
+
+            // 누락된 강의만 로드
+            const missingCourses = await Promise.all(
+                missingIds.map(id => CourseService.getCourseById(id))
+            )
+
+            // 기존 courses에 추가
+            courses.value = [...courses.value, ...missingCourses.filter(c => c)]
+
+            console.log(`✅ ${missingCourses.length}개 강의 추가 로드`)
+        } catch (err) {
+            console.error('❌ 강의 추가 로드 실패:', err)
+        } finally {
+            isLoading.value = false
+        }
+    }
+
+    /**
+     * 캐시 무효화
+     */
+    const invalidateCache = (cacheType = 'all') => {
+        if (cacheType === 'all' || cacheType === 'courses') {
+            lastLoadTime.value = null
+            CourseService.clearCache()
+        }
+        if (cacheType === 'all' || cacheType === 'enrollments') {
+            lastEnrollmentLoadTime.value = null
+        }
+        console.log(`🗑️ ${cacheType} 캐시 무효화`)
+    }
+
+    /**
+     * 수강 정보만 새로고침
+     */
+    const refreshEnrollments = async () => {
+        invalidateCache('enrollments')
+        return loadUserEnrollmentsOptimized()
     }
 
     // 강의 ID로 조회 (null 체크 추가)
@@ -300,7 +441,7 @@ export const useCourseStore = defineStore('course', () => {
                 removeFromSelected(courseId)
 
                 // 캐시 초기화 (수강 정보 변경)
-                clearCache()
+                invalidateCache('enrollments')
             }
 
             return result
@@ -370,7 +511,7 @@ export const useCourseStore = defineStore('course', () => {
             await loadUserEnrollments()
 
             // 캐시 초기화
-            clearCache()
+            invalidateCache('enrollments')
 
             // 상세 결과 로그
             console.log('📋 일괄 신청 결과:', {
@@ -505,6 +646,12 @@ export const useCourseStore = defineStore('course', () => {
         enrollCourse,
         enrollSelectedCourses,
         updateProgress,
-        accessCourseByQR
+        accessCourseByQR,
+
+        // 최적화 메서드 추가
+        loadMyCoursesOptimized,
+        loadRequiredCourses,
+        invalidateCache,
+        refreshEnrollments
     }
 })

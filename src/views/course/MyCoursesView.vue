@@ -411,6 +411,10 @@ const authStore = useAuthStore()
 const isLoading = ref(false)
 const activeTab = ref('in-progress')
 
+// 캐시 관련 상수
+const CACHE_DURATION = 5 * 60 * 1000 // 5분
+const lastFetchTime = ref(null)
+
 // 탭 설정
 const tabs = [
   { id: 'in-progress', label: '진행 중' },
@@ -512,11 +516,75 @@ const reviewCourse = (courseId) => {
   router.push(`/learning/${courseId}`)
 }
 
-// 새로고침
+// 캐시가 유효한지 확인
+const isCacheValid = () => {
+  if (!lastFetchTime.value) return false
+  const now = Date.now()
+  return (now - lastFetchTime.value) < CACHE_DURATION
+}
+
+// 최적화된 데이터 로드
+const loadMyCoursesOptimized = async () => {
+  try {
+    isLoading.value = true
+
+    // 캐시가 유효하고 데이터가 있으면 로딩 스킵
+    if (isCacheValid() && courseStore.enrollments.length > 0) {
+      console.log('Using cached data')
+      return
+    }
+
+    // Store에 최적화된 메서드가 있다면 사용
+    if (typeof courseStore.loadMyCoursesOptimized === 'function') {
+      await courseStore.loadMyCoursesOptimized()
+    } else {
+      // 병렬 처리로 데이터 로드
+      const promises = []
+
+      // enrollment 데이터는 항상 필요
+      promises.push(courseStore.loadUserEnrollments())
+
+      // course 데이터가 없을 때만 로드
+      if (courseStore.courses.length === 0) {
+        promises.push(courseStore.loadCoursesFromFlask())
+      }
+
+      // 모든 Promise를 병렬로 실행
+      const results = await Promise.allSettled(promises)
+
+      // 에러 처리
+      const errors = results.filter(result => result.status === 'rejected')
+      if (errors.length > 0) {
+        console.error('Some data failed to load:', errors)
+        // 부분적 실패는 허용하고 계속 진행
+      }
+    }
+
+    // 캐시 시간 업데이트
+    lastFetchTime.value = Date.now()
+
+  } catch (error) {
+    console.error('Failed to load courses:', error)
+    ElMessage.error('강의 목록을 불러오는데 실패했습니다.')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 새로고침 (캐시 무시)
 const refreshCourses = async () => {
   try {
     isLoading.value = true
+
+    // 캐시 무효화
+    lastFetchTime.value = null
+
+    // 강제 새로고침
     await courseStore.loadUserEnrollments()
+
+    // 캐시 시간 업데이트
+    lastFetchTime.value = Date.now()
+
     ElMessage.success('강의 목록을 새로고침했습니다.')
   } catch (error) {
     ElMessage.error('새로고침에 실패했습니다.')
@@ -527,17 +595,7 @@ const refreshCourses = async () => {
 
 // 마운트
 onMounted(async () => {
-  isLoading.value = true
-
-  // 강의 데이터 로드
-  if (courseStore.courses.length === 0) {
-    await courseStore.loadCoursesFromFlask()
-  }
-
-  // 사용자 수강 정보 로드
-  await courseStore.loadUserEnrollments()
-
-  isLoading.value = false
+  await loadMyCoursesOptimized()
 })
 </script>
 
