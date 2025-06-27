@@ -110,66 +110,72 @@ export class CategoryService {
             // 3. 리프 카테고리 검증
             const validLeafs = this.MID_TO_LEAF_KOREAN[sub] || []
             if (!validLeafs.includes(leaf)) {
-                console.warn(`❌ 잘못된 리프 카테고리: ${main}>${sub}>${leaf}`)
+                console.warn(`❌ 잘못된 리프 카테고리: ${sub}>${leaf}`)
                 return false
             }
 
             return true
         } catch (error) {
-            console.error('카테고리 경로 검증 중 오류:', error)
+            console.error('카테고리 경로 검증 오류:', error)
             return false
         }
     }
 
     /**
-     * 🔥 유효하지 않은 카테고리를 가장 가까운 유효한 카테고리로 변환 (추가)
-     * @param {string} main 메인 카테고리
-     * @param {string} sub 서브 카테고리
-     * @param {string} leaf 리프 카테고리
-     * @returns {Object|null} 수정된 카테고리 또는 null
+     * 🔥 Firebase 데이터를 위한 카테고리 정규화 (추가)
+     * @param {Object} firebaseData Firebase 업로드 데이터
+     * @returns {Object} 정규화된 카테고리 객체
      */
-    static findClosestValidCategory(main, sub, leaf) {
-        try {
-            // 1단계: 메인 카테고리 수정
-            let validMain = main
-            if (!this.MAIN_TABS_KOREAN.includes(main)) {
-                validMain = '기타'
-                console.log(`🔄 메인 카테고리 자동 수정: ${main} → ${validMain}`)
-            }
-
-            // 2단계: 서브 카테고리 수정
-            let validSub = sub
-            const validSubs = this.MAIN_TO_MID_KOREAN[validMain] || []
-            if (!validSubs.includes(sub)) {
-                validSub = validSubs[0] || '기타'
-                console.log(`🔄 서브 카테고리 자동 수정: ${sub} → ${validSub}`)
-            }
-
-            // 3단계: 리프 카테고리 수정
-            let validLeaf = leaf
-            const validLeafs = this.MID_TO_LEAF_KOREAN[validSub] || []
-            if (!validLeafs.includes(leaf)) {
-                validLeaf = validLeafs[0] || '기타'
-                console.log(`🔄 리프 카테고리 자동 수정: ${leaf} → ${validLeaf}`)
-            }
-
-            return {
-                main: validMain,
-                middle: validSub, // Vue 앱에서는 middle로 사용
-                leaf: validLeaf
-            }
-
-        } catch (error) {
-            console.error('카테고리 자동 수정 중 오류:', error)
-            return {
-                main: '기타',
-                middle: '기타',
-                leaf: '기타'
-            }
+    static normalizeCategoryFromFirebase(firebaseData) {
+        return {
+            main: firebaseData.main_category || firebaseData.category || '',
+            middle: firebaseData.sub_category || '',
+            leaf: firebaseData.sub_sub_category || ''
         }
     }
 
-    // ============== 기존 메서드들 (변경 없음) ==============
+    /**
+     * 🔥 디버깅을 위한 카테고리 매핑 출력 (추가)
+     */
+    static debugCategoryMapping() {
+        console.log('=== 카테고리 구조 ===')
+        console.log('메인 카테고리:', this.MAIN_TABS_KOREAN)
+        console.log('메인 → 중간 매핑:', this.MAIN_TO_MID_KOREAN)
+        console.log('중간 → 리프 매핑:', this.MID_TO_LEAF_KOREAN)
+    }
+
+    // ============== 기존 메서드들 ==============
+
+    /**
+     * 메인 카테고리 목록 가져오기
+     * @param {boolean} includeAll '전체' 포함 여부
+     * @returns {string[]} 메인 카테고리 배열
+     */
+    static getMainCategories(includeAll = false) {
+        if (includeAll) {
+            return [...this.MAIN_TABS_KOREAN]
+        }
+        return this.MAIN_TABS_KOREAN.filter(cat => cat !== '전체')
+    }
+
+    /**
+     * 특정 메인 카테고리의 중간 카테고리 목록
+     * @param {string} mainCategory 메인 카테고리
+     * @returns {string[]} 중간 카테고리 배열
+     */
+    static getMiddleCategories(mainCategory) {
+        return this.MAIN_TO_MID_KOREAN[mainCategory] || []
+    }
+
+    /**
+     * 특정 중간 카테고리의 리프 카테고리 목록
+     * @param {string} mainCategory 메인 카테고리
+     * @param {string} middleCategory 중간 카테고리
+     * @returns {string[]} 리프 카테고리 배열
+     */
+    static getLeafCategories(mainCategory, middleCategory) {
+        return this.MID_TO_LEAF_KOREAN[middleCategory] || []
+    }
 
     /**
      * 메인 탭 리스트 반환
@@ -409,28 +415,18 @@ export class CategoryService {
     }
 
     /**
-     * 디버깅용 카테고리 구조 출력
+     * 카테고리 경로 문자열 생성
+     * @param {Object} category { main, middle, leaf } 객체
+     * @returns {string} "메인 > 중간 > 리프" 형태의 문자열
      */
-    static debugCategoryMapping() {
-        console.group('🔧 카테고리 매핑 구조')
-        console.log('메인 탭:', this.MAIN_TABS_KOREAN)
-        console.log('메인→중간 매핑:', this.MAIN_TO_MID_KOREAN)
-        console.log('중간→리프 매핑:', this.MID_TO_LEAF_KOREAN)
-        console.groupEnd()
-    }
-
-    /**
-     * 카테고리 통계 정보
-     */
-    static getCategoryStats() {
-        const middleCount = Object.values(this.MAIN_TO_MID_KOREAN).flat().length
-        const leafCount = Object.values(this.MID_TO_LEAF_KOREAN).flat().length
-
-        return {
-            mainCount: this.MAIN_TABS_KOREAN.length,
-            middleCount,
-            leafCount,
-            totalCategories: this.MAIN_TABS_KOREAN.length + middleCount + leafCount
-        }
+    static getCategoryPath(category) {
+        const parts = []
+        if (category.main) parts.push(category.main)
+        if (category.middle) parts.push(category.middle)
+        if (category.leaf) parts.push(category.leaf)
+        return parts.join(' > ')
     }
 }
+
+// default export도 제공 (하위 호환성)
+export default CategoryService

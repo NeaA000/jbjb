@@ -241,7 +241,8 @@ import {
   ChevronLeft, Camera, User, Mail, Save, Loader, FileText,
   MapPin, Globe, Tag, Shield, Lock, Upload, Trash2, X, Info
 } from 'lucide-vue-next'
-import defaultAvatar from '@/assets/images/default-avatar.png'
+// 기본 아바타 URL (외부 이미지 사용)
+const defaultAvatar = 'https://ui-avatars.com/api/?name=User&background=67C23A&color=fff&size=120'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -295,19 +296,32 @@ const goBack = () => {
 
 const loadProfile = async () => {
   try {
-    const profile = await firestoreService.getFullProfile(authStore.userId)
+    const profile = await firestoreService.getUserProfile(authStore.userId)
 
-    formData.value = {
-      displayName: profile.displayName || '',
-      email: profile.email || '',
-      bio: profile.bio || '',
-      location: profile.location || '',
-      website: profile.website || '',
-      interests: profile.interests || []
+    if (profile) {
+      formData.value = {
+        displayName: profile.displayName || authStore.displayName,
+        email: profile.email || authStore.email,
+        bio: profile.bio || '',
+        location: profile.location || '',
+        website: profile.website || '',
+        interests: profile.interests || []
+      }
+      currentPhotoURL.value = profile.photoURL || authStore.photoURL || ''
+    } else {
+      // 프로필이 없으면 기본값 사용
+      formData.value = {
+        displayName: authStore.displayName,
+        email: authStore.email,
+        bio: '',
+        location: '',
+        website: '',
+        interests: []
+      }
+      currentPhotoURL.value = authStore.photoURL || ''
     }
 
-    currentPhotoURL.value = profile.photoURL || ''
-    interestsInput.value = (profile.interests || []).join(', ')
+    interestsInput.value = (formData.value.interests || []).join(', ')
   } catch (error) {
     console.error('프로필 로드 오류:', error)
     showToast('프로필을 불러오는 데 실패했습니다.', 'error')
@@ -363,8 +377,14 @@ const updateBasicInfo = async () => {
   try {
     isUpdating.value = true
 
-    // 이름 업데이트
+    // Firebase Auth 프로필 업데이트
     await authService.updateAuthProfile(formData.value.displayName)
+
+    // Firestore 사용자 문서 업데이트
+    await firestoreService.updateUserProfile(authStore.userId, {
+      displayName: formData.value.displayName,
+      email: formData.value.email
+    })
 
     // 이메일 업데이트 (변경된 경우)
     if (provider.value === 'email' && formData.value.email !== authStore.email) {
@@ -406,7 +426,8 @@ const updateAdditionalInfo = async () => {
       interests: formData.value.interests
     }
 
-    await firestoreService.updateProfileAdditionalInfo(authStore.userId, additionalData)
+    // firestoreService의 updateUserProfile 사용
+    await firestoreService.updateUserProfile(authStore.userId, additionalData)
     showToast('추가 정보가 저장되었습니다.')
   } catch (error) {
     console.error('추가 정보 업데이트 오류:', error)

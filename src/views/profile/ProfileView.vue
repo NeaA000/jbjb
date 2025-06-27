@@ -163,12 +163,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { firestoreService } from '@/services/firebase'
+import { firestoreService, db } from '@/services/firebase'
+import { collection, query, where, getDocs, orderBy, limit, getDoc, doc } from 'firebase/firestore'
 import {
   Camera, Settings, BookOpen, Award, LogOut, ChevronRight,
   MapPin, Calendar, Clock, CheckCircle, Play, FileText
 } from 'lucide-vue-next'
-import defaultAvatar from '@/assets/images/default-avatar.png'
+// 기본 아바타 URL (외부 이미지 사용)
+const defaultAvatar = 'https://ui-avatars.com/api/?name=User&background=67C23A&color=fff&size=120'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -205,16 +207,30 @@ const loadProfileData = async () => {
   try {
     isLoading.value = true
 
-    // 프로필 데이터 로드
-    const profile = await firestoreService.getFullProfile(authStore.userId)
-    profileData.value = {
-      displayName: profile.displayName || authStore.displayName,
-      email: profile.email || authStore.email,
-      photoURL: profile.photoURL || authStore.photoURL,
-      bio: profile.bio || '',
-      location: profile.location || '',
-      createdAt: profile.createdAt || new Date(),
-      interests: profile.interests || []
+    // 기본 프로필 데이터 로드
+    const profile = await firestoreService.getUserProfile(authStore.userId)
+
+    if (profile) {
+      profileData.value = {
+        displayName: profile.displayName || authStore.displayName,
+        email: profile.email || authStore.email,
+        photoURL: profile.photoURL || authStore.photoURL,
+        bio: profile.bio || '',
+        location: profile.location || '',
+        createdAt: profile.createdAt || new Date(),
+        interests: profile.interests || []
+      }
+    } else {
+      // 프로필이 없으면 기본값 사용
+      profileData.value = {
+        displayName: authStore.displayName,
+        email: authStore.email,
+        photoURL: authStore.photoURL,
+        bio: '',
+        location: '',
+        createdAt: new Date(),
+        interests: []
+      }
     }
 
     // 통계 데이터 로드
@@ -232,46 +248,94 @@ const loadProfileData = async () => {
 
 const loadStats = async () => {
   try {
-    // 실제로는 Firestore에서 통계 데이터를 가져와야 함
-    const userCourses = await firestoreService.getUserCourses(authStore.userId)
+    // enrollments 컬렉션에서 사용자 수강 정보 가져오기
+    const enrollmentsQuery = query(
+        collection(db, 'enrollments'),
+        where('userId', '==', authStore.userId)
+    )
+    const snapshot = await getDocs(enrollmentsQuery)
+
+    let inProgress = 0
+    let completed = 0
+    let certificates = 0
+    let totalMinutes = 0
+
+    snapshot.forEach(doc => {
+      const data = doc.data()
+      if (data.progress === 100) {
+        completed++
+        if (data.certificateId) certificates++
+      } else if (data.progress > 0) {
+        inProgress++
+      }
+      totalMinutes += data.studyTime || 0
+    })
 
     stats.value = {
-      coursesInProgress: userCourses.filter(c => c.progress > 0 && c.progress < 100).length,
-      coursesCompleted: userCourses.filter(c => c.progress === 100).length,
-      certificates: userCourses.filter(c => c.certificateId).length,
-      totalHours: Math.round(userCourses.reduce((sum, c) => sum + (c.studyTime || 0), 0) / 60)
+      coursesInProgress: inProgress,
+      coursesCompleted: completed,
+      certificates: certificates,
+      totalHours: Math.round(totalMinutes / 60)
     }
   } catch (error) {
     console.error('통계 로드 오류:', error)
+    // 오류 시 기본값 유지
   }
 }
 
 const loadRecentActivities = async () => {
   try {
-    // 실제로는 Firestore에서 최근 활동을 가져와야 함
-    // 여기서는 예시 데이터
-    recentActivities.value = [
-      {
-        id: '1',
-        courseId: 'course1',
-        courseName: '안전교육 기초과정',
-        type: 'progress',
-        description: '3장 완료',
-        progress: 75,
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000) // 2시간 전
-      },
-      {
-        id: '2',
-        courseId: 'course2',
-        courseName: '소방안전 교육',
-        type: 'completed',
-        description: '과정 완료',
-        progress: 100,
-        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000) // 1일 전
+    // 최근 활동을 enrollments에서 가져오기
+    const enrollmentsQuery = query(
+        collection(db, 'enrollments'),
+        where('userId', '==', authStore.userId),
+        orderBy('lastAccessedAt', 'desc'),
+        limit(5)
+    )
+
+    const snapshot = await getDocs(enrollmentsQuery)
+    const activities = []
+
+    for (const doc of snapshot.docs) {
+      const data = doc.data()
+      const courseId = data.courseId
+
+      // 강의 정보 가져오기
+      const courseDoc = await getDoc(doc(db, 'uploads', courseId))
+      if (courseDoc.exists()) {
+        const courseData = courseDoc.data()
+
+        let type = 'progress'
+        let description = `진행률 ${data.progress}%`
+
+        if (data.progress === 100) {
+          type = 'completed'
+          description = '과정 완료'
+          if (data.certificateId) {
+            type = 'certificate'
+            description = '수료증 발급'
+          }
+        } else if (data.progress === 0) {
+          type = 'started'
+          description = '학습 시작'
+        }
+
+        activities.push({
+          id: doc.id,
+          courseId: courseId,
+          courseName: courseData.title || '제목 없음',
+          type: type,
+          description: description,
+          progress: data.progress,
+          timestamp: data.lastAccessedAt || data.enrolledAt
+        })
       }
-    ]
+    }
+
+    recentActivities.value = activities
   } catch (error) {
     console.error('최근 활동 로드 오류:', error)
+    recentActivities.value = []
   }
 }
 
