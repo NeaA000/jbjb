@@ -9,61 +9,265 @@ import {
     query,
     where,
     orderBy,
-    serverTimestamp
+    limit,
+    startAfter,
+    serverTimestamp,
+    addDoc
 } from 'firebase/firestore'
 import { db } from './firebase'
 
 class CourseService {
-    // Flask API 엔드포인트 (개발/프로덕션 환경에 따라 변경)
-    static API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+    // 캐시 설정
+    static CACHE_KEY = 'courses_cache'
+    static CACHE_DURATION = 5 * 60 * 1000 // 5분
+    static PAGE_SIZE = 20
 
     /**
-     * Flask에서 전체 강의 목록 가져오기
+     * 캐시에서 강의 목록 가져오기
      */
-    static async getCoursesFromFlask() {
+    static getCachedCourses() {
         try {
-            const response = await fetch(`${this.API_BASE_URL}/api/courses`)
-            if (!response.ok) {
-                throw new Error('강의 목록을 가져올 수 없습니다.')
+            const cached = localStorage.getItem(this.CACHE_KEY)
+            if (!cached) return null
+
+            const { courses, timestamp } = JSON.parse(cached)
+            const now = Date.now()
+
+            // 캐시 만료 확인
+            if (now - timestamp > this.CACHE_DURATION) {
+                localStorage.removeItem(this.CACHE_KEY)
+                return null
             }
 
-            const data = await response.json()
-
-            // 날짜 문자열을 Date 객체로 변환
-            const courses = data.courses.map(course => ({
-                ...course,
-                createdAt: new Date(course.createdAt || Date.now()),
-                updatedAt: new Date(course.updatedAt || Date.now())
-            }))
-
-            return { courses }
+            console.log('📦 캐시에서 강의 로드:', courses.length)
+            return courses
         } catch (error) {
-            console.error('Flask API 오류:', error)
-            // 개발 중 임시 데이터 반환
-            return { courses: this.getMockCourses() }
+            console.error('캐시 로드 오류:', error)
+            return null
         }
     }
 
     /**
-     * Firebase에서 강의 상세 정보 가져오기
+     * 캐시에 강의 목록 저장
      */
-    static async getCourseById(courseId) {
+    static setCachedCourses(courses) {
         try {
-            const courseDoc = await getDoc(doc(db, 'courses', courseId))
+            const cacheData = {
+                courses,
+                timestamp: Date.now()
+            }
+            localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData))
+        } catch (error) {
+            console.error('캐시 저장 오류:', error)
+        }
+    }
 
-            if (courseDoc.exists()) {
-                return {
-                    id: courseDoc.id,
-                    ...courseDoc.data()
+    /**
+     * Firestore에서 전체 강의 목록 가져오기 (캐싱 적용)
+     */
+    static async getCoursesFromFirestore() {
+        try {
+            // 1. 먼저 캐시 확인
+            const cachedCourses = this.getCachedCourses()
+            if (cachedCourses) {
+                return { courses: cachedCourses, fromCache: true }
+            }
+
+            // 2. Firestore에서 로드
+            console.log('🔄 Firestore에서 강의 로드 시작...')
+            const coursesRef = collection(db, 'courses')
+            const q = query(coursesRef, orderBy('createdAt', 'desc'))
+            const snapshot = await getDocs(q)
+
+            const courses = []
+            snapshot.forEach(doc => {
+                courses.push({
+                    id: doc.id,
+                    ...doc.data(),
+                    createdAt: doc.data().createdAt?.toDate() || new Date(),
+                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
+                })
+            })
+
+            // 3. 캐시에 저장
+            this.setCachedCourses(courses)
+
+            console.log(`✅ Firestore에서 ${courses.length}개 강의 로드 완료`)
+            return { courses, fromCache: false }
+        } catch (error) {
+            console.error('Firestore 강의 목록 조회 오류:', error)
+
+            if (error.code === 'permission-denied') {
+                console.warn('Firestore 권한이 거부되었습니다.')
+                return { courses: [], fromCache: false }
+            }
+
+            throw error
+        }
+    }
+
+    /**
+     * 페이지네이션으로 강의 목록 가져오기
+     */
+    static async getCoursesWithPagination(lastDoc = null, pageSize = this.PAGE_SIZE) {
+        try {
+            console.log('📄 페이지 로드 시작...')
+            const coursesRef = collection(db, 'courses')
+
+            let q
+            if (lastDoc) {
+                q = query(
+                    coursesRef,
+                    orderBy('createdAt', 'desc'),
+                    startAfter(lastDoc),
+                    limit(pageSize)
+                )
+            } else {
+                q = query(
+                    coursesRef,
+                    orderBy('createdAt', 'desc'),
+                    limit(pageSize)
+                )
+            }
+
+            const snapshot = await getDocs(q)
+
+            const courses = []
+            let lastDocument = null
+
+            snapshot.forEach(doc => {
+                courses.push({
+                    id: doc.id,
+                    ...doc.data(),
+                    createdAt: doc.data().createdAt?.toDate() || new Date(),
+                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
+                })
+                lastDocument = doc
+            })
+
+            console.log(`✅ ${courses.length}개 강의 로드`)
+
+            return {
+                courses,
+                lastDoc: lastDocument,
+                hasMore: courses.length === pageSize
+            }
+        } catch (error) {
+            console.error('페이지네이션 조회 오류:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 카테고리별 강의 조회 (캐싱 적용)
+     */
+    static async getCoursesByCategory(category) {
+        try {
+            // 캐시 키 생성
+            const cacheKey = `courses_category_${category}`
+            const cached = localStorage.getItem(cacheKey)
+
+            if (cached) {
+                const { courses, timestamp } = JSON.parse(cached)
+                if (Date.now() - timestamp < this.CACHE_DURATION) {
+                    console.log(`📦 캐시에서 ${category} 카테고리 로드`)
+                    return courses
                 }
             }
 
-            // Firebase에 없으면 Flask에서 찾기
-            const flaskData = await this.getCoursesFromFlask()
-            return flaskData.courses.find(c => c.id === courseId) || null
+            // Firestore 조회
+            const coursesRef = collection(db, 'courses')
+            const q = query(
+                coursesRef,
+                where('category.leaf', '==', category),
+                orderBy('createdAt', 'desc'),
+                limit(50) // 카테고리별 최대 50개
+            )
+
+            const snapshot = await getDocs(q)
+            const courses = []
+
+            snapshot.forEach(doc => {
+                courses.push({
+                    id: doc.id,
+                    ...doc.data(),
+                    createdAt: doc.data().createdAt?.toDate() || new Date(),
+                    updatedAt: doc.data().updatedAt?.toDate() || new Date()
+                })
+            })
+
+            // 캐시 저장
+            localStorage.setItem(cacheKey, JSON.stringify({
+                courses,
+                timestamp: Date.now()
+            }))
+
+            return courses
+        } catch (error) {
+            console.error('카테고리별 강의 조회 오류:', error)
+            return []
+        }
+    }
+
+    /**
+     * 강의 상세 정보 가져오기 (캐싱 적용)
+     */
+    static async getCourseById(courseId) {
+        try {
+            // 캐시 확인
+            const cacheKey = `course_${courseId}`
+            const cached = localStorage.getItem(cacheKey)
+
+            if (cached) {
+                const { course, timestamp } = JSON.parse(cached)
+                if (Date.now() - timestamp < this.CACHE_DURATION) {
+                    console.log(`📦 캐시에서 강의 상세 로드: ${courseId}`)
+                    return course
+                }
+            }
+
+            // Firestore 조회
+            const courseDoc = await getDoc(doc(db, 'courses', courseId))
+
+            if (courseDoc.exists()) {
+                const course = {
+                    id: courseDoc.id,
+                    ...courseDoc.data(),
+                    createdAt: courseDoc.data().createdAt?.toDate() || new Date(),
+                    updatedAt: courseDoc.data().updatedAt?.toDate() || new Date()
+                }
+
+                // 캐시 저장
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    course,
+                    timestamp: Date.now()
+                }))
+
+                return course
+            }
+
+            return null
         } catch (error) {
             console.error('강의 조회 오류:', error)
             return null
+        }
+    }
+
+    /**
+     * 캐시 초기화
+     */
+    static clearCache() {
+        try {
+            // 강의 관련 캐시 제거
+            const keys = Object.keys(localStorage)
+            keys.forEach(key => {
+                if (key.startsWith('course') || key === this.CACHE_KEY) {
+                    localStorage.removeItem(key)
+                }
+            })
+            console.log('🗑️ 캐시 초기화 완료')
+        } catch (error) {
+            console.error('캐시 초기화 오류:', error)
         }
     }
 
@@ -93,6 +297,12 @@ class CourseService {
             return enrollments
         } catch (error) {
             console.error('수강 정보 조회 오류:', error)
+
+            if (error.code === 'permission-denied') {
+                console.warn('수강 정보 조회 권한이 없습니다.')
+                return []
+            }
+
             return []
         }
     }
@@ -120,11 +330,15 @@ class CourseService {
                 status: 'enrolled',
                 progress: 0,
                 enrolledAt: serverTimestamp(),
+                lastViewedAt: serverTimestamp(),
                 isQRAccess,
                 ...(isQRAccess && { qrAccessedAt: serverTimestamp() })
             }
 
             await setDoc(doc(db, 'enrollments', enrollmentId), enrollmentData)
+
+            // 관련 캐시 초기화
+            this.clearCache()
 
             return {
                 success: true,
@@ -133,6 +347,14 @@ class CourseService {
             }
         } catch (error) {
             console.error('강의 신청 오류:', error)
+
+            if (error.code === 'permission-denied') {
+                return {
+                    success: false,
+                    message: '강의 신청 권한이 없습니다. 로그인을 확인해주세요.'
+                }
+            }
+
             return {
                 success: false,
                 message: '강의 신청에 실패했습니다.'
@@ -177,21 +399,26 @@ class CourseService {
     }
 
     /**
-     * 비디오 URL 가져오기
+     * 비디오 URL 가져오기 (Firebase Storage URL)
      */
     static async getVideoUrl(videoId, language = 'ko') {
         try {
-            // Firebase Storage URL 또는 외부 비디오 URL 반환
-            // 실제 구현은 Firebase Storage 설정에 따라 다름
-            const videoUrl = `https://storage.googleapis.com/your-bucket/${videoId}/${language}.mp4`
+            const courseDoc = await getDoc(doc(db, 'courses', videoId))
 
-            return {
-                videoUrl,
-                metadata: {
-                    language,
-                    duration: '30:00'
+            if (courseDoc.exists()) {
+                const courseData = courseDoc.data()
+                const videoUrl = courseData.videoUrls?.[language] || courseData.videoUrl || ''
+
+                return {
+                    videoUrl,
+                    metadata: {
+                        language,
+                        duration: courseData.duration || '30:00'
+                    }
                 }
             }
+
+            return { videoUrl: null, metadata: null }
         } catch (error) {
             console.error('비디오 URL 조회 오류:', error)
             return { videoUrl: null, metadata: null }
@@ -203,16 +430,24 @@ class CourseService {
      */
     static async getAvailableLanguages(videoId) {
         try {
-            // 실제로는 Firebase에서 조회
-            return {
-                languages: ['ko', 'en', 'zh', 'vi'],
-                details: {
-                    ko: { language: '한국어', isDefault: true },
-                    en: { language: 'English', isDefault: false },
-                    zh: { language: '中文', isDefault: false },
-                    vi: { language: 'Tiếng Việt', isDefault: false }
-                }
+            const courseDoc = await getDoc(doc(db, 'courses', videoId))
+
+            if (courseDoc.exists()) {
+                const courseData = courseDoc.data()
+                const languages = courseData.availableLanguages || ['ko']
+
+                const details = {}
+                languages.forEach(lang => {
+                    details[lang] = {
+                        language: this.getLanguageName(lang),
+                        isDefault: lang === 'ko'
+                    }
+                })
+
+                return { languages, details }
             }
+
+            return { languages: ['ko'], details: { ko: { language: '한국어', isDefault: true } } }
         } catch (error) {
             console.error('언어 목록 조회 오류:', error)
             return { languages: ['ko'], details: {} }
@@ -220,74 +455,71 @@ class CourseService {
     }
 
     /**
-     * 개발용 임시 데이터
+     * 언어 코드를 언어명으로 변환
      */
-    static getMockCourses() {
-        return [
-            {
-                id: 'course-1',
-                title: '굴착기 안전 운전 교육',
-                description: '굴착기의 안전한 조작법과 사고 예방을 위한 필수 교육입니다.',
-                category: {
-                    main: '기계',
-                    middle: '건설기계',
-                    leaf: '굴착기'
-                },
-                instructor: '김안전',
-                duration: '30분',
-                difficulty: 'beginner',
-                thumbnail: 'https://via.placeholder.com/400x225',
-                videoUrl: 'sample-video-1',
-                rating: 4.5,
-                reviewCount: 128,
-                enrolledCount: 456,
-                tags: ['안전', '건설', '중장비'],
-                createdAt: new Date('2024-01-15'),
-                updatedAt: new Date('2024-01-15')
-            },
-            {
-                id: 'course-2',
-                title: '크레인 작업 안전 수칙',
-                description: '크레인 운영 시 반드시 알아야 할 안전 규정과 절차를 학습합니다.',
-                category: {
-                    main: '기계',
-                    middle: '건설기계',
-                    leaf: '크레인'
-                },
-                instructor: '박안전',
-                duration: '45분',
-                difficulty: 'intermediate',
-                thumbnail: 'https://via.placeholder.com/400x225',
-                videoUrl: 'sample-video-2',
-                rating: 4.8,
-                reviewCount: 89,
-                enrolledCount: 234,
-                tags: ['안전', '크레인', '높이작업'],
-                createdAt: new Date('2024-02-01'),
-                updatedAt: new Date('2024-02-01')
-            },
-            {
-                id: 'course-3',
-                title: '전동드릴 안전 사용법',
-                description: '전동드릴의 올바른 사용법과 안전 수칙을 배웁니다.',
-                category: {
-                    main: '공구',
-                    middle: '전동공구',
-                    leaf: '전동드릴'
-                },
-                instructor: '이안전',
-                duration: '20분',
-                difficulty: 'beginner',
-                thumbnail: 'https://via.placeholder.com/400x225',
-                videoUrl: 'sample-video-3',
-                rating: 4.6,
-                reviewCount: 156,
-                enrolledCount: 789,
-                tags: ['안전', '전동공구', '드릴'],
-                createdAt: new Date('2024-02-15'),
-                updatedAt: new Date('2024-02-15')
+    static getLanguageName(langCode) {
+        const languageNames = {
+            ko: '한국어',
+            en: 'English',
+            zh: '中文',
+            vi: 'Tiếng Việt'
+        }
+        return languageNames[langCode] || langCode
+    }
+
+    /**
+     * 새 강의 추가 (관리자용)
+     */
+    static async createCourse(courseData) {
+        try {
+            const docRef = await addDoc(collection(db, 'courses'), {
+                ...courseData,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                enrolledCount: 0,
+                rating: 0,
+                reviewCount: 0
+            })
+
+            // 캐시 초기화
+            this.clearCache()
+
+            return {
+                success: true,
+                courseId: docRef.id
             }
-        ]
+        } catch (error) {
+            console.error('강의 생성 오류:', error)
+            return {
+                success: false,
+                error: error.message
+            }
+        }
+    }
+
+    /**
+     * 강의 정보 업데이트 (관리자용)
+     */
+    static async updateCourse(courseId, updateData) {
+        try {
+            await updateDoc(doc(db, 'courses', courseId), {
+                ...updateData,
+                updatedAt: serverTimestamp()
+            })
+
+            // 캐시 초기화
+            this.clearCache()
+
+            return {
+                success: true
+            }
+        } catch (error) {
+            console.error('강의 업데이트 오류:', error)
+            return {
+                success: false,
+                error: error.message
+            }
+        }
     }
 }
 

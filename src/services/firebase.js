@@ -480,6 +480,93 @@ export const storageService = {
     }
 }
 
+// Timestamp 유틸리티
+export const TimestampUtils = {
+    // Firestore Timestamp를 Date 객체로 변환
+    toDate(timestamp) {
+        if (!timestamp) return null
+
+        // 이미 Date 객체인 경우
+        if (timestamp instanceof Date) return timestamp
+
+        // Firestore Timestamp 객체인 경우
+        if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+            return timestamp.toDate()
+        }
+
+        // seconds와 nanoseconds 속성이 있는 경우
+        if (timestamp.seconds) {
+            return new Date(timestamp.seconds * 1000)
+        }
+
+        // 문자열인 경우
+        if (typeof timestamp === 'string') {
+            return new Date(timestamp)
+        }
+
+        return null
+    },
+
+    // Date 객체를 포맷팅
+    format(timestamp, format = 'YYYY-MM-DD HH:mm') {
+        const date = this.toDate(timestamp)
+        if (!date) return ''
+
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const hours = String(date.getHours()).padStart(2, '0')
+        const minutes = String(date.getMinutes()).padStart(2, '0')
+        const seconds = String(date.getSeconds()).padStart(2, '0')
+
+        return format
+            .replace('YYYY', year)
+            .replace('MM', month)
+            .replace('DD', day)
+            .replace('HH', hours)
+            .replace('mm', minutes)
+            .replace('ss', seconds)
+    },
+
+    // 상대 시간 표시 (예: 3시간 전, 2일 전)
+    relative(timestamp) {
+        const date = this.toDate(timestamp)
+        if (!date) return ''
+
+        const now = new Date()
+        const diff = now - date
+        const seconds = Math.floor(diff / 1000)
+        const minutes = Math.floor(seconds / 60)
+        const hours = Math.floor(minutes / 60)
+        const days = Math.floor(hours / 24)
+
+        if (days > 0) return `${days}일 전`
+        if (hours > 0) return `${hours}시간 전`
+        if (minutes > 0) return `${minutes}분 전`
+        return '방금 전'
+    },
+
+    // 한국어 날짜 포맷 (2024년 3월 15일 형식)
+    formatKorean(timestamp) {
+        const date = this.toDate(timestamp)
+        if (!date) return ''
+
+        return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`
+    },
+
+    // 시간 포함 한국어 포맷 (2024년 3월 15일 오후 3시 30분)
+    formatKoreanWithTime(timestamp) {
+        const date = this.toDate(timestamp)
+        if (!date) return ''
+
+        const hours = date.getHours()
+        const period = hours < 12 ? '오전' : '오후'
+        const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+
+        return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 ${period} ${displayHours}시 ${date.getMinutes()}분`
+    }
+}
+
 // 에러 메시지 한글화
 export const getErrorMessage = (error) => {
     const errorMessages = {
@@ -532,5 +619,6 @@ export default {
     firestoreService,
     storageService,
     getErrorMessage,
-    checkNetworkStatus
+    checkNetworkStatus,
+    TimestampUtils
 }

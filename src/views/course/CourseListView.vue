@@ -147,16 +147,13 @@
     <!-- 강의 목록 -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-32">
       <!-- 결과 개수 -->
-      <div class="mb-4 text-sm text-gray-600">
+      <div v-if="!isLoading && filteredCourses.length > 0" class="mb-4 text-sm text-gray-600">
         {{ filteredCourses.length }}개의 강의
       </div>
 
-      <!-- 로딩 상태 -->
-      <div v-if="isLoading" class="flex justify-center items-center h-64">
-        <div class="flex items-center space-x-2">
-          <Loader2 class="w-6 h-6 animate-spin text-blue-500" />
-          <span class="text-gray-600">강의를 불러오는 중...</span>
-        </div>
+      <!-- 초기 로딩 상태 (스켈레톤) -->
+      <div v-if="isInitialLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <CourseSkeletonLoader v-for="i in 6" :key="`skeleton-${i}`" />
       </div>
 
       <!-- 강의 카드 그리드 -->
@@ -173,6 +170,7 @@
                 :src="course.thumbnail"
                 :alt="course.title"
                 class="w-full h-full object-cover"
+                loading="lazy"
             />
             <div v-else class="w-full h-full flex items-center justify-center">
               <PlayCircle class="w-16 h-16 text-gray-400" />
@@ -268,10 +266,15 @@
       </div>
 
       <!-- 검색 결과 없음 -->
-      <div v-else class="text-center py-16">
+      <div v-else-if="!isLoading" class="text-center py-16">
         <BookOpen class="w-16 h-16 text-gray-400 mx-auto mb-4" />
         <h2 class="text-xl font-medium text-gray-900 mb-2">검색 결과가 없습니다</h2>
         <p class="text-gray-500">다른 검색어나 필터를 시도해보세요</p>
+      </div>
+
+      <!-- 추가 로딩 표시 -->
+      <div v-if="isLoadingMore" class="mt-8 flex justify-center">
+        <Loader2 class="w-6 h-6 animate-spin text-blue-500" />
       </div>
     </div>
 
@@ -280,14 +283,14 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCourseStore } from '@/stores/course'
 import { CategoryService } from '@/services/categoryService'
+import CourseSkeletonLoader from '@/components/CourseSkeletonLoader.vue'
 import EnrolledCoursesFooter from '@/components/EnrolledCoursesFooter.vue'
 import { ElMessage } from 'element-plus'
-import type { Course } from '@/types/course'
 import {
   ArrowLeft,
   RefreshCw,
@@ -310,6 +313,8 @@ const courseStore = useCourseStore()
 
 // 상태
 const isLoading = ref(false)
+const isInitialLoading = ref(true)
+const isLoadingMore = ref(false)
 const searchQuery = ref('')
 const difficultyFilter = ref('')
 const selectedTabIndex = ref(0)
@@ -411,18 +416,18 @@ const hasActiveFilters = computed(() => {
 })
 
 // 카테고리 선택
-const selectMainCategory = (category: string) => {
+const selectMainCategory = (category) => {
   selectedMainCategory.value = category
   selectedMiddleCategory.value = ''
   selectedLeafCategory.value = ''
 }
 
-const selectMiddleCategory = (category: string) => {
+const selectMiddleCategory = (category) => {
   selectedMiddleCategory.value = category
   selectedLeafCategory.value = ''
 }
 
-const selectLeafCategory = (category: string) => {
+const selectLeafCategory = (category) => {
   selectedLeafCategory.value = category
 }
 
@@ -433,14 +438,14 @@ const resetCategories = () => {
 }
 
 // 탭 선택
-const selectTab = (index: number) => {
+const selectTab = (index) => {
   selectedTabIndex.value = index
   const tab = mainTabs.value[index]
   selectMainCategory(tab)
 }
 
 // 브레드크럼 네비게이션
-const navigateToBreadcrumb = (crumb: any) => {
+const navigateToBreadcrumb = (crumb) => {
   if (crumb.type === 'main') {
     selectMainCategory(crumb.value)
   } else if (crumb.type === 'middle') {
@@ -458,7 +463,7 @@ const clearFilters = () => {
 }
 
 // 카테고리 경로 표시
-const getCategoryDisplayPath = (course: Course) => {
+const getCategoryDisplayPath = (course) => {
   if (!course.category) return '기타'
 
   const { main, middle, leaf } = course.category
@@ -472,13 +477,13 @@ const getCategoryDisplayPath = (course: Course) => {
 }
 
 // 카테고리 스타일
-const getCategoryStyle = (leafCategory: string) => {
+const getCategoryStyle = (leafCategory) => {
   return CategoryService.getCategoryStyle(leafCategory)
 }
 
 // 난이도 텍스트
-const getDifficultyText = (difficulty: string) => {
-  const difficultyMap: Record<string, string> = {
+const getDifficultyText = (difficulty) => {
+  const difficultyMap = {
     beginner: '초급',
     intermediate: '중급',
     advanced: '고급'
@@ -487,17 +492,17 @@ const getDifficultyText = (difficulty: string) => {
 }
 
 // 수강 상태 확인
-const getEnrollmentStatus = (courseId: string) => {
+const getEnrollmentStatus = (courseId) => {
   return courseStore.getEnrollmentStatus(courseId)
 }
 
 // 강의 클릭 (상세보기)
-const handleCourseClick = (course: Course) => {
+const handleCourseClick = (course) => {
   router.push(`/course/${course.id}`)
 }
 
 // 강의 선택
-const handleCourseSelect = (course: Course) => {
+const handleCourseSelect = (course) => {
   if (courseStore.isSelected(course.id)) {
     courseStore.removeFromSelected(course.id)
   } else {
@@ -508,11 +513,13 @@ const handleCourseSelect = (course: Course) => {
   }
 }
 
-// 새로고침
+// 새로고침 (캐시 무시)
 const refreshCourses = async () => {
   try {
     isLoading.value = true
-    await courseStore.loadCoursesFromFlask()
+    // 캐시 초기화 후 다시 로드
+    courseStore.clearCache()
+    await courseStore.loadCoursesFromFirestore()
     ElMessage.success('강의 목록을 새로고침했습니다.')
   } catch (error) {
     ElMessage.error('새로고침에 실패했습니다.')
@@ -523,14 +530,18 @@ const refreshCourses = async () => {
 
 // 마운트
 onMounted(async () => {
-  isLoading.value = true
+  isInitialLoading.value = true
   courseStore.loadSelectedFromStorage()
 
-  if (courseStore.courses.length === 0) {
-    await courseStore.loadCoursesFromFlask()
+  try {
+    // 강의 데이터 로드 (캐시 우선)
+    await courseStore.loadCoursesFromFirestore()
+  } catch (error) {
+    console.error('강의 로드 실패:', error)
+    ElMessage.error('강의 목록을 불러올 수 없습니다.')
+  } finally {
+    isInitialLoading.value = false
   }
-
-  isLoading.value = false
 })
 </script>
 
