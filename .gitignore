@@ -1,30 +1,227 @@
-# Logs
-logs
+# 📱 OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# 🔐 Environment variables & secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.env
+!.env.example
+!.env.template
+
+# 🔑 Security & API keys
+**/config/secrets.js
+**/config/secrets.json
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+service-account-key.json
+firebase-service-account.json
+google-services.json
+GoogleService-Info.plist
+
+# 📦 Dependencies
+node_modules/
+**/node_modules/
+jspm_packages/
+bower_components/
+
+# 🏗️ Build outputs
+dist/
+dist-ssr/
+build/
+out/
+.output/
+.nuxt/
+.next/
+*.local
+
+# 📝 Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+database-debug.log*
+pubsub-debug.log*
 
-node_modules
-.DS_Store
-dist
-dist-ssr
-coverage
-*.local
+# 🧪 Testing
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+junit.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
 
-/cypress/videos/
-/cypress/screenshots/
+# 💻 IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-project
+*.sublime-workspace
+*.iml
+*.ipr
+*.iws
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# 🔥 Firebase
+.firebase/
+.firebaserc
+firebase-export-*/
+firestore-export-*/
+firestore_export/
+firebase-export-metadata.json
 
-*.tsbuildinfo
+# ⚡ Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# 🌐 Vue
+.vue-router-auto/
+
+# 📱 Android specific
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+.gradle/
+build/
+local.properties
+proguard/
+*.keystore
+!debug.keystore
+
+# 🍎 iOS specific
+*.ipa
+*.xcuserstate
+*.xcworkspace/
+!default.xcworkspace
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# 🎬 Media files (optional - uncomment if needed)
+# *.mp4
+# *.avi
+# *.mov
+# *.wmv
+# *.flv
+# *.webm
+
+# 📊 Data files
+*.csv
+*.xlsx
+*.xls
+!sample-data/**
+!test-data/**
+
+# 🗄️ Database
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+
+# 📚 Documentation build
+docs/_build/
+docs/.vuepress/dist/
+site/
+
+# 🗑️ Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+.temp/
+.cache/
+.parcel-cache/
+
+# 🔧 Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+!package.json
+
+# 🚀 Deployment
+.vercel/
+.netlify/
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port
+.yarn-integrity
+
+# 📸 Uploaded files (in production)
+uploads/
+public/uploads/
+static/uploads/
+!uploads/.gitkeep
+
+# 🎯 Project specific
+/android/
+/ios/
+/web/functions/lib/
+/web/functions/node_modules/
+/web/dist/
+/web/.vite/
+
+# 🔒 Security - Railway specific
+railway.json
+railway.toml
+
+# 📝 Personal notes
+TODO.md
+NOTES.md
+notes.txt
+todo.txt
+
+# 🧹 Misc
+*.bak
+*.orig
+*.rej
+.grunt/
+.sass-cache/
+*.css.map
+*.js.map
+.eslintcache
+.stylelintcache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
