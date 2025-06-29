@@ -29,6 +29,7 @@
           :poster="thumbnailUrl"
           preload="metadata"
           playsinline
+          crossorigin="anonymous"
           @loadstart="onLoadStart"
           @loadedmetadata="onLoadedMetadata"
           @loadeddata="onLoadedData"
@@ -41,7 +42,9 @@
           @waiting="onWaiting"
           @playing="onPlaying"
       >
+        <!-- 여러 소스 형식 지원 -->
         <source :src="videoUrl" type="video/mp4" />
+        <source :src="videoUrl" type="application/x-mpegURL" v-if="videoUrl.includes('.m3u8')" />
         <p>브라우저가 비디오 재생을 지원하지 않습니다.</p>
       </video>
 
@@ -51,8 +54,17 @@
         <p>버퍼링 중...</p>
       </div>
 
+      <!-- 에러 메시지 -->
+      <div v-if="errorMessage" class="error-overlay">
+        <AlertCircle :size="48" />
+        <h3>비디오 재생 오류</h3>
+        <p>{{ errorMessage }}</p>
+        <button @click="retryLoad" class="retry-btn">다시 시도</button>
+      </div>
+
       <!-- 커스텀 컨트롤 -->
       <div
+          v-if="!errorMessage"
           class="video-controls"
           :class="{ 'visible': showControls }"
           @mouseenter="showControls = true"
@@ -168,10 +180,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   Play, Pause, Volume2, VolumeX, Volume1,
-  Settings, Maximize, Minimize, SkipBack, SkipForward
+  Settings, Maximize, Minimize, SkipBack, SkipForward,
+  AlertCircle
 } from 'lucide-vue-next'
 
 // Props
@@ -196,6 +209,14 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  userId: {
+    type: String,
+    default: ''
+  },
+  currentLanguage: {
+    type: String,
+    default: 'ko'
+  },
   onProgress: {
     type: Function,
     default: null
@@ -203,7 +224,7 @@ const props = defineProps({
 })
 
 // Emit
-const emit = defineEmits(['ready', 'play', 'pause', 'ended', 'progress', 'error'])
+const emit = defineEmits(['ready', 'play', 'pause', 'ended', 'progress', 'error', 'shake-detected'])
 
 // Refs
 const videoElement = ref(null)
@@ -229,6 +250,9 @@ const tooltipTime = ref(0)
 const tooltipPosition = ref(0)
 const currentQuality = ref('auto')
 const lastSavedTime = ref(0)
+const errorMessage = ref('')
+const retryCount = ref(0)
+const maxRetries = 3
 
 // 설정값
 const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
@@ -242,6 +266,7 @@ const qualities = ref([
 // 타이머
 let controlsTimer = null
 let progressTimer = null
+let shakeDetectionTimer = null
 
 // 계산된 속성
 const progressPercent = computed(() => {
@@ -255,10 +280,46 @@ const volumeIcon = computed(() => {
 })
 
 // 메서드
-const loadVideo = () => {
+const loadVideo = async () => {
+  if (!props.videoUrl) {
+    errorMessage.value = '비디오 URL이 없습니다.'
+    return
+  }
+
   isVideoReady.value = true
+  errorMessage.value = ''
+
+  await nextTick()
+
   if (videoElement.value) {
-    videoElement.value.load()
+    try {
+      console.log('🎬 비디오 로드 시작:', props.videoUrl)
+
+      // 기존 소스 제거
+      videoElement.value.pause()
+      videoElement.value.removeAttribute('src')
+      videoElement.value.load()
+
+      // 새 소스 설정
+      videoElement.value.src = props.videoUrl
+
+      // 메타데이터 로드 대기
+      videoElement.value.load()
+
+    } catch (error) {
+      console.error('비디오 로드 오류:', error)
+      errorMessage.value = '비디오를 로드할 수 없습니다.'
+    }
+  }
+}
+
+const retryLoad = async () => {
+  if (retryCount.value < maxRetries) {
+    retryCount.value++
+    errorMessage.value = ''
+    await loadVideo()
+  } else {
+    errorMessage.value = '비디오 로드에 실패했습니다. 잠시 후 다시 시도해주세요.'
   }
 }
 
@@ -268,7 +329,10 @@ const togglePlay = () => {
   if (isPlaying.value) {
     videoElement.value.pause()
   } else {
-    videoElement.value.play()
+    videoElement.value.play().catch(error => {
+      console.error('재생 오류:', error)
+      errorMessage.value = '비디오를 재생할 수 없습니다.'
+    })
   }
 }
 
@@ -384,10 +448,16 @@ const formatTime = (seconds) => {
 const onLoadStart = () => {
   isInitialLoading.value = false
   isBuffering.value = true
+  console.log('🎬 비디오 로드 시작')
 }
 
 const onLoadedMetadata = () => {
   duration.value = videoElement.value.duration
+  console.log('📊 비디오 메타데이터 로드됨:', {
+    duration: duration.value,
+    videoWidth: videoElement.value.videoWidth,
+    videoHeight: videoElement.value.videoHeight
+  })
 
   // 저장된 재생 위치 복원
   const savedPosition = localStorage.getItem(`videoPosition_${props.courseId}_${props.episodeId}`)
@@ -400,23 +470,28 @@ const onLoadedMetadata = () => {
 }
 
 const onLoadedData = () => {
+  console.log('✅ 비디오 데이터 로드 완료')
   emit('ready')
 }
 
 const onCanPlay = () => {
   isBuffering.value = false
+  errorMessage.value = ''
+  console.log('▶️ 비디오 재생 준비 완료')
 }
 
 const onPlay = () => {
   isPlaying.value = true
   emit('play')
   hideControlsDelayed()
+  startShakeDetection()
 }
 
 const onPause = () => {
   isPlaying.value = false
   showControls.value = true
   emit('pause')
+  stopShakeDetection()
 }
 
 const onTimeUpdate = () => {
@@ -446,10 +521,33 @@ const onEnded = () => {
   if (props.onProgress) {
     props.onProgress(100)
   }
+  emit('progress', 100)
 }
 
 const onError = (event) => {
-  console.error('비디오 재생 오류:', event)
+  const error = event.target.error
+  console.error('❌ 비디오 재생 오류:', error)
+
+  let message = '비디오를 재생할 수 없습니다.'
+
+  if (error) {
+    switch (error.code) {
+      case error.MEDIA_ERR_ABORTED:
+        message = '비디오 로드가 중단되었습니다.'
+        break
+      case error.MEDIA_ERR_NETWORK:
+        message = '네트워크 오류가 발생했습니다.'
+        break
+      case error.MEDIA_ERR_DECODE:
+        message = '비디오 형식을 지원하지 않습니다.'
+        break
+      case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        message = '비디오 소스를 찾을 수 없거나 지원하지 않는 형식입니다.'
+        break
+    }
+  }
+
+  errorMessage.value = message
   emit('error', event)
   isBuffering.value = false
 }
@@ -479,7 +577,39 @@ const saveProgress = () => {
     props.onProgress(progress)
   }
 
-  emit('progress', { currentTime: currentTime.value, duration: duration.value, progress })
+  emit('progress', progress)
+}
+
+// 흔들림 감지
+const startShakeDetection = () => {
+  if ('DeviceMotionEvent' in window) {
+    window.addEventListener('devicemotion', handleMotion)
+  }
+}
+
+const stopShakeDetection = () => {
+  if ('DeviceMotionEvent' in window) {
+    window.removeEventListener('devicemotion', handleMotion)
+  }
+}
+
+let lastShakeTime = 0
+const shakeThreshold = 15
+
+const handleMotion = (event) => {
+  const acceleration = event.accelerationIncludingGravity
+  if (!acceleration) return
+
+  const currentTime = new Date().getTime()
+  if (currentTime - lastShakeTime > 1000) {
+    const speed = Math.abs(acceleration.x) + Math.abs(acceleration.y) + Math.abs(acceleration.z)
+
+    if (speed > shakeThreshold) {
+      lastShakeTime = currentTime
+      emit('shake-detected')
+      console.log('🚨 흔들림 감지!')
+    }
+  }
 }
 
 // 키보드 단축키
@@ -561,6 +691,13 @@ onMounted(() => {
 
   // 주기적 진도 저장
   progressTimer = setInterval(saveProgress, 30000) // 30초마다
+
+  // 초기 로딩
+  if (props.videoUrl) {
+    setTimeout(() => {
+      loadVideo()
+    }, 100)
+  }
 })
 
 // 언마운트
@@ -572,6 +709,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyboard)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
   document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+  stopShakeDetection()
 
   // 타이머 정리
   clearTimeout(controlsTimer)
@@ -579,10 +717,11 @@ onUnmounted(() => {
 })
 
 // 비디오 URL 변경 감지
-watch(() => props.videoUrl, (newUrl) => {
-  if (newUrl && videoElement.value) {
-    videoElement.value.src = newUrl
-    videoElement.value.load()
+watch(() => props.videoUrl, async (newUrl, oldUrl) => {
+  if (newUrl && newUrl !== oldUrl) {
+    console.log('🔄 비디오 URL 변경 감지:', newUrl)
+    retryCount.value = 0
+    await loadVideo()
   }
 })
 </script>
@@ -735,6 +874,53 @@ watch(() => props.videoUrl, (newUrl) => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* =================== 에러 오버레이 =================== */
+.error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  text-align: center;
+  padding: 2rem;
+}
+
+.error-overlay svg {
+  margin-bottom: 1rem;
+  color: #ef4444;
+}
+
+.error-overlay h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.error-overlay p {
+  margin-bottom: 1.5rem;
+  color: #9ca3af;
+}
+
+.retry-btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.retry-btn:hover {
+  background: var(--accent-primary-dark);
 }
 
 /* =================== 비디오 컨트롤 =================== */

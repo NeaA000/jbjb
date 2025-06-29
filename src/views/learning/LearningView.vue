@@ -8,18 +8,55 @@
     <div v-else class="learning-wrapper">
       <!-- 비디오 플레이어 -->
       <div class="video-section">
-        <VideoPlayer
-            v-if="videoUrl"
-            :videoUrl="videoUrl"
-            :courseId="courseId"
-            :userId="userId"
-            :currentLanguage="currentLanguage"
-            @progress="handleProgress"
-            @shake-detected="handleShakeDetected"
-        />
-        <div v-else class="no-video">
+        <!-- TypeScript 버전처럼 video 태그 직접 사용 -->
+        <video
+            v-if="videoUrl && !videoError"
+            ref="videoPlayer"
+            :key="`${videoUrl}-${retryCount}`"
+            :src="videoUrl"
+            :poster="course?.thumbnail"
+            class="main-video"
+            controls
+            preload="metadata"
+            playsinline
+            crossorigin="anonymous"
+            @loadedmetadata="onVideoLoaded"
+            @timeupdate="onVideoTimeUpdate"
+            @play="onVideoPlay"
+            @pause="onVideoPause"
+            @ended="onVideoEnded"
+            @error="onVideoError"
+            @canplay="onVideoCanPlay"
+            @waiting="onVideoWaiting"
+        >
+          <source :src="videoUrl" :type="getVideoMimeType(videoUrl)">
+          <p class="text-white text-center p-4">
+            브라우저가 비디오 재생을 지원하지 않습니다.
+          </p>
+        </video>
+
+        <!-- 비디오 로딩 상태 -->
+        <div v-if="videoLoading" class="video-loading-overlay">
+          <Loader2 class="w-12 h-12 animate-spin text-white mb-4" />
+          <p class="text-white">비디오 로딩 중...</p>
+          <p v-if="retryCount > 0" class="text-gray-400 text-sm mt-2">
+            재시도 중... ({{ retryCount }}/3)
+          </p>
+        </div>
+
+        <!-- 비디오 에러 상태 -->
+        <div v-else-if="!videoUrl || videoError" class="no-video">
           <AlertCircle :size="48" />
-          <p>비디오를 불러올 수 없습니다</p>
+          <p class="text-lg font-semibold mb-2">비디오를 사용할 수 없습니다</p>
+          <p class="text-sm text-gray-400 mb-4">
+            {{ videoError || '비디오 URL이 설정되지 않았거나 유효하지 않습니다.' }}
+          </p>
+          <button
+              @click="retryVideoLoad"
+              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            다시 시도
+          </button>
         </div>
       </div>
 
@@ -109,12 +146,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCourseStore } from '@/stores/course'
 import CourseService from '@/services/courseService'
-import VideoPlayer from '@/components/video/VideoPlayer.vue'
 import LoadingSpinner from '@/common/LoadingSpinner.vue'
 import {
   AlertCircle,
@@ -122,7 +158,8 @@ import {
   Globe,
   ArrowLeft,
   Award,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -149,6 +186,15 @@ const progress = ref(0)
 const showShakeWarning = ref(false)
 const availableLanguages = ref(['ko']) // 사용 가능한 언어 목록
 
+// 비디오 관련 상태 추가
+const videoPlayer = ref(null)
+const videoLoading = ref(false)
+const videoError = ref(null)
+const retryCount = ref(0)
+const isPlaying = ref(false)
+const currentTime = ref(0)
+const duration = ref(0)
+
 // 언어 이름 맵핑
 const languageNames = {
   ko: '한국어',
@@ -169,7 +215,7 @@ const loadCourse = async () => {
   try {
     isLoading.value = true
 
-    // CourseService를 통해 상세 정보 가져오기
+    // CourseService를 통해 상세 정보 가져오기 (TypeScript 버전과 동일한 방식)
     course.value = await CourseService.getCourseById(courseId.value)
 
     if (!course.value) {
@@ -188,8 +234,7 @@ const loadCourse = async () => {
     // 비디오 URL 설정
     await updateVideoUrl()
 
-    // 기존 진행률 로드
-    await loadProgress()
+    // 기존 진행률 로드는 비디오 로드 후에 처리
 
   } catch (error) {
     console.error('강의 로드 실패:', error)
@@ -203,13 +248,20 @@ const loadCourse = async () => {
 // 사용 가능한 언어 목록 로드
 const loadAvailableLanguages = async () => {
   try {
-    // Firebase에서 언어별 비디오 정보 확인
+    // CourseService.getAvailableLanguages 사용
     const languages = await CourseService.getAvailableLanguages(courseId.value)
+
     if (languages && languages.length > 0) {
       availableLanguages.value = languages
     } else {
       // 기본값: 한국어만
       availableLanguages.value = ['ko']
+    }
+
+    // 선택된 언어가 사용 가능한지 확인
+    if (!availableLanguages.value.includes(currentLanguage.value)) {
+      currentLanguage.value = availableLanguages.value[0] || 'ko'
+      console.log('⚠️ 선택된 언어가 없어 기본 언어로 변경:', currentLanguage.value)
     }
   } catch (error) {
     console.warn('언어 목록 로드 실패:', error)
@@ -217,48 +269,47 @@ const loadAvailableLanguages = async () => {
   }
 }
 
-// 비디오 URL 업데이트 (async로 수정)
+// 비디오 URL 업데이트 (CourseService의 실제 메서드 사용)
 const updateVideoUrl = async () => {
   if (!course.value) return
 
   try {
-    // CourseService에서 언어별 비디오 URL 가져오기
+    console.log('🔄 비디오 URL 업데이트 시작...')
+    videoLoading.value = true
+    videoError.value = null
+
+    // CourseService의 실제 메서드 사용
     const url = await CourseService.getVideoUrlForLanguage(courseId.value, currentLanguage.value)
 
-    // Railway 프록시 URL이 상대 경로인 경우 절대 경로로 변환
-    if (url && url.startsWith('/')) {
-      const apiUrl = import.meta.env.VITE_API_URL || ''
-      videoUrl.value = `${apiUrl}${url}`
-    } else {
+    if (url) {
       videoUrl.value = url
-    }
+      console.log(`🎬 비디오 URL 업데이트:`, {
+        language: currentLanguage.value,
+        url: url,
+        courseId: courseId.value
+      })
 
-    console.log(`🎬 비디오 URL 업데이트:`, {
-      language: currentLanguage.value,
-      url: videoUrl.value
-    })
+      // 비디오 엘리먼트가 준비될 때까지 대기
+      await nextTick()
+
+      if (videoPlayer.value) {
+        videoPlayer.value.load()
+      }
+    } else {
+      throw new Error('비디오 URL을 가져올 수 없습니다.')
+    }
   } catch (error) {
     console.error('비디오 URL 업데이트 실패:', error)
+    videoError.value = '비디오를 불러올 수 없습니다.'
 
-    // 에러 시 폴백 처리
-    const apiUrl = import.meta.env.VITE_API_URL || ''
-
-    // 1차 폴백: 한국어 비디오 시도
+    // 폴백 처리
     if (currentLanguage.value !== 'ko') {
-      try {
-        const koUrl = await CourseService.getVideoUrlForLanguage(courseId.value, 'ko')
-        if (koUrl) {
-          videoUrl.value = koUrl.startsWith('/') ? `${apiUrl}${koUrl}` : koUrl
-          console.warn(`${currentLanguage.value} 영상이 없어 한국어로 재생합니다.`)
-          return
-        }
-      } catch (e) {
-        console.error('한국어 비디오도 로드 실패:', e)
-      }
+      console.warn('다른 언어 비디오를 찾을 수 없어 한국어로 재생합니다.')
+      currentLanguage.value = 'ko'
+      await updateVideoUrl()
     }
-
-    // 2차 폴백: 기본 watch URL
-    videoUrl.value = `${apiUrl}/watch/${courseId.value}?lang=${currentLanguage.value}`
+  } finally {
+    videoLoading.value = false
   }
 }
 
@@ -280,8 +331,13 @@ const changeLanguage = async (lang) => {
 const loadProgress = async () => {
   try {
     if (authStore.user) {
+      // CourseService.getProgress 사용 (기존 메서드)
       const savedProgress = await CourseService.getProgress(authStore.user.uid, courseId.value)
-      progress.value = savedProgress || 0
+      if (savedProgress) {
+        progress.value = savedProgress
+
+        // 비디오 시간 복원은 비디오 로드 후에 처리
+      }
     } else {
       // 게스트는 로컬스토리지 사용
       const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
@@ -294,31 +350,107 @@ const loadProgress = async () => {
   }
 }
 
-// 진행률 업데이트
-const handleProgress = async (newProgress) => {
-  progress.value = Math.round(newProgress)
+// 비디오 이벤트 핸들러 추가
+const onVideoLoaded = async (event) => {
+  duration.value = event.target.duration
+  console.log('🎥 비디오 로드됨:', {
+    duration: duration.value,
+    language: currentLanguage.value
+  })
 
-  // 로컬 저장
-  localStorage.setItem(`progress_${courseId.value}`, progress.value.toString())
+  // 진도 로드
+  await loadProgress()
+}
 
-  // Firebase 업데이트
-  if (authStore.user) {
-    try {
-      await CourseService.updateProgress(
-          authStore.user.uid,
-          courseId.value,
-          progress.value
-      )
-    } catch (error) {
-      console.error('진도 저장 실패:', error)
-    }
+const onVideoPlay = () => {
+  isPlaying.value = true
+  videoLoading.value = false
+}
+
+const onVideoPause = () => {
+  isPlaying.value = false
+}
+
+const onVideoEnded = async () => {
+  isPlaying.value = false
+  progress.value = 100
+  await handleProgress(100)
+  console.log('🎉 강의 완료!')
+}
+
+const onVideoError = (event) => {
+  console.error('❌ 비디오 오류:', event)
+  videoLoading.value = false
+
+  const video = event.target
+  const errorCode = video?.error?.code || 0
+
+  let message = '비디오를 재생할 수 없습니다.'
+
+  switch (errorCode) {
+    case 1:
+      message = '비디오 로드가 중단되었습니다.'
+      break
+    case 2:
+      message = '네트워크 오류가 발생했습니다.'
+      break
+    case 3:
+      message = '비디오 형식을 지원하지 않습니다.'
+      break
+    case 4:
+      message = '비디오 소스를 찾을 수 없습니다.'
+      break
   }
 
-  // 100% 완료 시 처리
-  if (progress.value === 100) {
-    console.log('🎉 강의 수료!')
-    // TODO: 수료 처리
+  videoError.value = message
+
+  // 자동 재시도
+  if (retryCount.value < 3) {
+    retryCount.value++
+    setTimeout(() => {
+      console.log(`🔄 비디오 로드 재시도 (${retryCount.value}/3)`)
+      updateVideoUrl()
+    }, 2000)
   }
+}
+
+const onVideoTimeUpdate = (event) => {
+  currentTime.value = event.target.currentTime
+  const newProgress = Math.round((currentTime.value / duration.value) * 100)
+
+  if (newProgress !== progress.value) {
+    progress.value = newProgress
+    handleProgress(newProgress)
+  }
+}
+
+const onVideoCanPlay = () => {
+  videoLoading.value = false
+  retryCount.value = 0
+  console.log('✅ 비디오 재생 준비 완료')
+}
+
+const onVideoWaiting = () => {
+  console.log('⏳ 비디오 버퍼링 중...')
+}
+
+// 비디오 재시도
+const retryVideoLoad = () => {
+  videoError.value = null
+  retryCount.value = 0
+  updateVideoUrl()
+}
+
+// 비디오 MIME 타입 가져오기
+const getVideoMimeType = (url) => {
+  if (!url) return 'video/mp4'
+  const extension = url.split('.').pop()?.toLowerCase() || 'mp4'
+  const mimeTypes = {
+    'mp4': 'video/mp4',
+    'webm': 'video/webm',
+    'ogg': 'video/ogg'
+  }
+  return mimeTypes[extension] || 'video/mp4'
 }
 
 // 흔들림 감지 처리
@@ -348,10 +480,15 @@ onMounted(async () => {
   // 강의 로드
   await loadCourse()
 
-  // 비디오 URL 디버깅 정보만 출력 (fetch 제거)
+  // 비디오 URL 디버깅 정보
   if (videoUrl.value) {
-    console.log('📺 비디오 URL 설정 완료:', videoUrl.value)
-    console.log('💡 VideoPlayer 컴포넌트가 이 URL을 사용하여 비디오를 재생합니다.')
+    console.log('📺 비디오 URL 설정 완료:', {
+      url: videoUrl.value,
+      courseId: courseId.value,
+      language: currentLanguage.value,
+      userId: userId.value
+    })
+    console.log('💡 HTML5 video 엘리먼트가 이 URL을 사용하여 비디오를 재생합니다.')
   }
 })
 </script>
@@ -391,6 +528,25 @@ onMounted(async () => {
   box-shadow: var(--shadow-lg);
 }
 
+/* 메인 비디오 */
+.main-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 비디오 로딩 오버레이 */
+.video-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
 .no-video {
   display: flex;
   flex-direction: column;
@@ -399,6 +555,8 @@ onMounted(async () => {
   height: 100%;
   color: white;
   gap: 1rem;
+  padding: 2rem;
+  text-align: center;
 }
 
 /* 강의 정보 섹션 */

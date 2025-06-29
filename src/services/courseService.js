@@ -421,21 +421,32 @@ class CourseService {
     }
 
     /**
-     * 비디오 URL 가져오기 (CDN 최적화)
+     * 비디오 URL 가져오기 (수정됨 - courseId에서 videoUrl 추출)
      */
-    static async getVideoUrl(videoId, language = 'ko') {
+    static async getVideoUrl(videoUrl, language = 'ko') {
         try {
-            const baseUrl = import.meta.env.VITE_API_URL || ''
-            const videoUrl = `${baseUrl}/watch/${videoId}?lang=${language}`
+            // videoUrl이 이미 완전한 URL인 경우
+            if (videoUrl && (videoUrl.startsWith('http://') || videoUrl.startsWith('https://') || videoUrl.startsWith('/'))) {
+                return {
+                    videoUrl: this._convertToAbsoluteUrl(videoUrl),
+                    metadata: {
+                        language,
+                        source: 'direct'
+                    }
+                }
+            }
 
-            // 프리로드 힌트 추가
-            const link = document.createElement('link')
-            link.rel = 'preload'
-            link.as = 'video'
-            link.href = videoUrl
-            document.head.appendChild(link)
+            // videoUrl이 courseId인 경우
+            const courseId = videoUrl
+            const languageVideoUrl = await this.getVideoUrlForLanguage(courseId, language)
 
-            return videoUrl
+            return {
+                videoUrl: languageVideoUrl,
+                metadata: {
+                    language,
+                    source: 'firebase'
+                }
+            }
         } catch (error) {
             console.error('비디오 URL 생성 오류:', error)
             throw error
@@ -525,11 +536,17 @@ class CourseService {
     }
 
     /**
-     * 사용 가능한 언어 목록 가져오기
+     * 사용 가능한 언어 목록 가져오기 (수정됨 - courseId 직접 사용)
      */
     static async getAvailableLanguages(courseId) {
         try {
             console.log(`🌐 사용 가능한 언어 목록 조회: ${courseId}`)
+
+            // courseId 유효성 검사
+            if (!courseId || typeof courseId !== 'string') {
+                console.error('유효하지 않은 courseId:', courseId)
+                return { languages: ['ko'] }
+            }
 
             // language_videos 서브컬렉션의 모든 문서 조회
             const languageVideosRef = collection(
@@ -552,15 +569,16 @@ class CourseService {
 
             // 언어가 없으면 기본값으로 한국어만 반환
             if (languages.length === 0) {
-                return ['ko']
+                console.log('⚠️ 언어별 비디오가 없어 기본값(한국어) 반환')
+                return { languages: ['ko'] }
             }
 
             console.log(`✅ 사용 가능한 언어: ${languages.join(', ')}`)
-            return languages
+            return { languages }
 
         } catch (error) {
             console.error('언어 목록 조회 오류:', error)
-            return ['ko'] // 오류 시 기본값
+            return { languages: ['ko'] } // 오류 시 기본값
         }
     }
 
