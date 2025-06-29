@@ -204,9 +204,28 @@ export const useCourseStore = defineStore('course', () => {
         }
     }
 
-    // 수강 상태 확인 (최적화)
+    // 수강 상태 확인 (수정됨)
     const getEnrollmentStatus = (courseId) => {
-        return enrollmentMap.value.get(courseId)?.status || null
+        const enrollment = enrollmentMap.value.get(courseId)
+
+        // 수강 정보가 없으면 'not-enrolled' 반환
+        if (!enrollment) {
+            return 'not-enrolled'
+        }
+
+        // status가 있으면 반환, 없으면 progress로 판단
+        if (enrollment.status) {
+            return enrollment.status
+        }
+
+        // progress가 100이면 completed, 0보다 크면 enrolled
+        if (enrollment.progress >= 100) {
+            return 'completed'
+        } else if (enrollment.progress > 0) {
+            return 'enrolled'
+        }
+
+        return 'enrolled' // 기본값
     }
 
     // 진도율 확인 (최적화)
@@ -218,8 +237,26 @@ export const useCourseStore = defineStore('course', () => {
     const isSelected = (courseId) => selectedCourseIds.value.includes(courseId)
 
     const addToSelected = (courseId) => {
+        // 최대 선택 개수 체크
+        if (selectedCourseIds.value.length >= 10) {
+            return {
+                success: false,
+                message: '최대 10개까지 선택할 수 있습니다'
+            }
+        }
+
         if (!isSelected(courseId)) {
             selectedCourseIds.value.push(courseId)
+            saveSelectedToStorage()
+            return {
+                success: true,
+                message: '강의가 선택되었습니다'
+            }
+        }
+
+        return {
+            success: false,
+            message: '이미 선택된 강의입니다'
         }
     }
 
@@ -227,6 +264,7 @@ export const useCourseStore = defineStore('course', () => {
         const index = selectedCourseIds.value.indexOf(courseId)
         if (index > -1) {
             selectedCourseIds.value.splice(index, 1)
+            saveSelectedToStorage()
         }
     }
 

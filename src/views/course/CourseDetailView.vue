@@ -44,6 +44,7 @@
                   class="video-player"
                   @loadedmetadata="onVideoMetadataLoaded"
                   @timeupdate="onVideoTimeUpdate"
+                  @error="onVideoError"
               >
                 브라우저가 비디오 재생을 지원하지 않습니다.
               </video>
@@ -446,7 +447,7 @@ const loadCourseDetail = async () => {
     if (!course.value) {
       // 캐시된 데이터에서 찾기
       if (courseStore.courses.length === 0) {
-        await courseStore.loadCoursesFromFlask()
+        await courseStore.loadCoursesFromFirestore()
       }
       course.value = courseStore.getCourseById(courseId.value)
     }
@@ -470,7 +471,7 @@ const loadCourseDetail = async () => {
   }
 }
 
-// Firebase 비디오 로드
+// Firebase 비디오 로드 - 에러 핸들링 개선
 const loadFirebaseVideo = async () => {
   if (!course.value?.id) return
 
@@ -486,6 +487,10 @@ const loadFirebaseVideo = async () => {
     }
   } catch (error) {
     console.error('비디오 로드 실패:', error)
+    // 폴백: 강의의 기본 비디오 URL 사용
+    if (course.value.videoUrl) {
+      currentVideoUrl.value = course.value.videoUrl
+    }
   }
 }
 
@@ -543,17 +548,27 @@ const getLanguageName = (langCode) => {
   return SUPPORTED_LANGUAGES[langCode] || langCode.toUpperCase()
 }
 
-// 선택 목록에 추가
+// 선택 목록에 추가 - 수정됨
 const addToSelectedList = () => {
   if (!course.value) return
 
-  const result = courseStore.addToSelected(course.value.id)
+  try {
+    // 최대 선택 개수 체크
+    if (courseStore.selectedCount >= 10) {
+      ElMessage.warning('최대 10개까지 선택할 수 있습니다')
+      return
+    }
 
-  if (result.success) {
+    courseStore.addToSelected(course.value.id)
     showSelectionMessage.value = true
     setTimeout(() => {
       showSelectionMessage.value = false
     }, 3000)
+
+    ElMessage.success('강의가 선택되었습니다')
+  } catch (error) {
+    console.error('강의 선택 실패:', error)
+    ElMessage.error('강의 선택에 실패했습니다')
   }
 }
 
@@ -561,6 +576,7 @@ const addToSelectedList = () => {
 const removeFromSelectedList = () => {
   if (!course.value) return
   courseStore.removeFromSelected(course.value.id)
+  ElMessage.info('선택이 취소되었습니다')
 }
 
 // 학습 페이지로 이동
@@ -602,6 +618,16 @@ const onVideoMetadataLoaded = () => {
 const onVideoTimeUpdate = () => {
   if (videoPlayer.value) {
     videoCurrentTime.value = videoPlayer.value.currentTime
+  }
+}
+
+// 비디오 에러 핸들링
+const onVideoError = (event) => {
+  console.error('비디오 재생 오류:', event)
+  // CORS 에러나 다른 에러 발생 시 대체 처리
+  if (course.value?.videoUrl && currentVideoUrl.value !== course.value.videoUrl) {
+    console.log('대체 비디오 URL로 재시도')
+    currentVideoUrl.value = course.value.videoUrl
   }
 }
 
