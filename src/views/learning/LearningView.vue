@@ -343,67 +343,16 @@ watch(currentLanguage, () => {
   updateVideoUrl()
 })
 
-// 마운트 - 디버깅 코드 추가
+// 마운트
 onMounted(async () => {
-  console.log('=== 비디오 디버깅 시작 ===')
-
-  // 1. 강의 로드
+  // 강의 로드
   await loadCourse()
 
-  // 2. 최종 비디오 URL 확인
-  console.log('📺 최종 비디오 URL:', videoUrl.value)
-
-  // 3. URL이 있다면 직접 테스트
+  // 비디오 URL 디버깅 정보만 출력 (fetch 제거)
   if (videoUrl.value) {
-    // 3-1. fetch로 헤더 확인
-    try {
-      const response = await fetch(videoUrl.value, {
-        method: 'HEAD',
-        mode: 'cors'
-      })
-      console.log('📡 비디오 응답 상태:', response.status)
-      console.log('📋 Content-Type:', response.headers.get('content-type'))
-      console.log('🔒 CORS:', response.headers.get('access-control-allow-origin'))
-    } catch (error) {
-      console.error('❌ Fetch 에러:', error)
-    }
-
-    // 3-2. 새 탭에서 비디오 URL 열기 테스트
-    console.log('💡 다음 URL을 새 탭에서 직접 열어보세요:')
-    console.log(videoUrl.value)
-
-    // 3-3. video 엘리먼트로 테스트
-    const testVideo = document.createElement('video')
-    testVideo.src = videoUrl.value
-
-    testVideo.addEventListener('loadstart', () => {
-      console.log('✅ loadstart: 비디오 로딩 시작')
-    })
-
-    testVideo.addEventListener('error', (e) => {
-      console.error('❌ 비디오 에러:', e)
-      console.error('에러 코드:', testVideo.error?.code)
-      console.error('에러 메시지:', testVideo.error?.message)
-
-      // 에러 코드 설명
-      const errorMessages = {
-        1: 'MEDIA_ERR_ABORTED - 사용자가 다운로드를 중단',
-        2: 'MEDIA_ERR_NETWORK - 네트워크 에러',
-        3: 'MEDIA_ERR_DECODE - 디코딩 에러 (잘못된 형식)',
-        4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - 지원하지 않는 형식'
-      }
-      console.error('에러 설명:', errorMessages[testVideo.error?.code])
-    })
-
-    testVideo.addEventListener('canplay', () => {
-      console.log('✅ canplay: 비디오 재생 가능!')
-    })
-
-    // 로드 시작
-    testVideo.load()
+    console.log('📺 비디오 URL 설정 완료:', videoUrl.value)
+    console.log('💡 VideoPlayer 컴포넌트가 이 URL을 사용하여 비디오를 재생합니다.')
   }
-
-  console.log('=== 디버깅 끝 ===')
 })
 </script>
 

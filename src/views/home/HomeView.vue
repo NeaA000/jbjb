@@ -196,6 +196,10 @@ import {
   PlayCircle,
   Clock
 } from 'lucide-vue-next'
+// Firebase imports
+import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -228,33 +232,167 @@ const handleLogout = async () => {
   }
 }
 
+// 통계 데이터 로드
+const loadStats = async () => {
+  try {
+    const userId = authStore.userId
+    if (!userId) return
+
+    // enrollments 컬렉션에서 사용자 수강 정보 가져오기
+    const enrollmentsQuery = query(
+        collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS),
+        where('userId', '==', userId)
+    )
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+
+    let inProgress = 0
+    let completed = 0
+    let totalMinutes = 0
+
+    // 진도 정보 병렬 로드
+    const progressPromises = []
+    enrollmentsSnapshot.forEach(doc => {
+      const enrollment = doc.data()
+      progressPromises.push(loadProgressForEnrollment(userId, enrollment.courseId))
+    })
+
+    const progressResults = await Promise.all(progressPromises)
+
+    // 통계 계산
+    progressResults.forEach((progress, index) => {
+      if (progress >= 100) {
+        completed++
+      } else if (progress > 0) {
+        inProgress++
+      }
+
+      // 학습 시간 추가 (enrollments 문서에서)
+      const enrollment = enrollmentsSnapshot.docs[index].data()
+      totalMinutes += enrollment.studyTime || 0
+    })
+
+    // certificates 컬렉션에서 수료증 개수 가져오기
+    const certificatesQuery = query(
+        collection(db, FIREBASE_COLLECTIONS.CERTIFICATES),
+        where('userId', '==', userId)
+    )
+    const certificatesSnapshot = await getDocs(certificatesQuery)
+    const certificatesCount = certificatesSnapshot.size
+
+    stats.value = {
+      completed,
+      inProgress,
+      certificates: certificatesCount,
+      totalHours: Math.round(totalMinutes / 60)
+    }
+  } catch (error) {
+    console.error('통계 로드 오류:', error)
+    // 오류 시 기본값 유지
+  }
+}
+
+// 개별 강의의 진도 정보 로드
+const loadProgressForEnrollment = async (userId, courseId) => {
+  try {
+    const progressId = `${userId}_${courseId}`
+    const progressDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId))
+
+    if (progressDoc.exists()) {
+      const data = progressDoc.data()
+      return data.progress || data.percentage || 0
+    }
+    return 0
+  } catch (error) {
+    console.error('진도 로드 오류:', error)
+    return 0
+  }
+}
+
+// 최근 학습 강의 로드
+const loadRecentCourses = async () => {
+  try {
+    const userId = authStore.userId
+    if (!userId) return
+
+    // 최근 접근한 enrollments 가져오기
+    const enrollmentsQuery = query(
+        collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS),
+        where('userId', '==', userId),
+        orderBy('lastAccessedAt', 'desc'),
+        limit(3)
+    )
+
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+    const courses = []
+
+    // 각 enrollment에 대한 강의 정보와 진도 정보 병렬 로드
+    const coursePromises = []
+    enrollmentsSnapshot.forEach(doc => {
+      const enrollment = doc.data()
+      coursePromises.push(loadCourseWithProgress(enrollment.courseId, userId))
+    })
+
+    const courseResults = await Promise.all(coursePromises)
+
+    // 유효한 강의만 필터링
+    courseResults.forEach(course => {
+      if (course) {
+        courses.push(course)
+      }
+    })
+
+    recentCourses.value = courses
+  } catch (error) {
+    console.error('최근 학습 강의 로드 오류:', error)
+    recentCourses.value = []
+  }
+}
+
+// 강의 정보와 진도 정보를 함께 로드
+const loadCourseWithProgress = async (courseId, userId) => {
+  try {
+    // 강의 정보 가져오기
+    const courseDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId))
+    if (!courseDoc.exists()) return null
+
+    const courseData = courseDoc.data()
+
+    // 진도 정보 가져오기
+    const progress = await loadProgressForEnrollment(userId, courseId)
+
+    // 카테고리 경로 생성
+    const categoryPath = [
+      courseData.main_category,
+      courseData.sub_category,
+      courseData.sub_sub_category
+    ].filter(Boolean).join(' > ')
+
+    return {
+      id: courseId,
+      title: courseData.group_name || courseData.title || '제목 없음',
+      category: categoryPath || '미분류',
+      progress: progress,
+      thumbnail: courseData.thumbnail_url || null,
+      duration: courseData.duration || '30분'
+    }
+  } catch (error) {
+    console.error('강의 정보 로드 오류:', error)
+    return null
+  }
+}
+
 // 데이터 로드
 const loadDashboardData = async () => {
-  // TODO: 실제 API에서 데이터 로드
-  // 임시 데이터
-  stats.value = {
-    completed: 5,
-    inProgress: 2,
-    certificates: 5,
-    totalHours: 12
+  try {
+    // 병렬로 모든 데이터 로드
+    await Promise.all([
+      loadStats(),
+      loadRecentCourses()
+    ])
+  } catch (error) {
+    console.error('대시보드 데이터 로드 오류:', error)
+    ElMessage.error('데이터를 불러오는 중 오류가 발생했습니다')
   }
-
-  recentCourses.value = [
-    {
-      id: '1',
-      title: '건설현장 안전관리 기초',
-      category: '건설안전',
-      progress: 75,
-      thumbnail: null
-    },
-    {
-      id: '2',
-      title: '전기작업 안전수칙',
-      category: '전기안전',
-      progress: 30,
-      thumbnail: null
-    }
-  ]
 }
 
 // 마운트/언마운트
