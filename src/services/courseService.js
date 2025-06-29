@@ -1,4 +1,4 @@
-// web/src/services/courseService.js - 확장된 버전
+// web/src/services/courseService.js - 수정된 버전
 import {
     collection,
     doc,
@@ -89,6 +89,11 @@ class CourseService {
         const baseUrl = import.meta.env.VITE_API_URL || ''
         const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
 
+        // 언어 정보 처리 - 안전하게 처리
+        const supportedLanguagesCount = data.supported_languages_count || 1
+        const supportedVideoLanguages = data.supported_video_languages || ['ko']
+        const availableLanguages = supportedVideoLanguages.length > 0 ? supportedVideoLanguages : ['ko']
+
         return {
             id: uploadDoc.id,
             // 기본 정보 (올바른 필드명 사용)
@@ -124,10 +129,11 @@ class CourseService {
             rating: data.rating || 0,
             reviewCount: data.review_count || data.reviewCount || 0,
 
-            // 언어 정보
+            // 언어 정보 - 안전하게 처리
             languageVideos: data.language_videos || {},
-            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
-            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
+            hasMultipleLanguages: supportedLanguagesCount > 1,
+            availableLanguages: availableLanguages,
+            supported_languages_count: supportedLanguagesCount,
             hasLanguageVideos: false, // 나중에 로드
 
             // Railway 프록시 정보
@@ -348,12 +354,12 @@ class CourseService {
 
             snapshot.forEach((doc) => {
                 const data = doc.data()
-                const language = data.language || doc.id
+                const language = data.language_code || doc.id
                 languageVideos[language] = {
                     language,
-                    videoUrl: data.video_url || data.videoUrl || '',
-                    hasVideo: !!data.video_url || !!data.videoUrl,
-                    uploadedAt: data.uploadedAt || new Date()
+                    videoUrl: data.video_url || data.railway_proxy_url || '',
+                    hasVideo: !!data.video_url || !!data.railway_proxy_url,
+                    uploadedAt: data.created_at || new Date()
                 }
             })
 
@@ -362,6 +368,7 @@ class CourseService {
             course.availableLanguages = Object.keys(languageVideos).length > 0 ?
                 Object.keys(languageVideos) : ['ko']
             course.hasMultipleLanguages = course.availableLanguages.length > 1
+            course.hasLanguageVideos = true
 
             // 메모리 캐시 업데이트
             const cacheKey = `course_${courseId}`
@@ -761,6 +768,13 @@ class CourseService {
         try {
             console.log(`🔍 언어별 비디오 URL 조회: ${courseId} (${language})`)
 
+            // courseId 유효성 검사
+            if (!courseId || typeof courseId !== 'string') {
+                console.error('유효하지 않은 courseId:', courseId)
+                const baseUrl = import.meta.env.VITE_API_URL || ''
+                return `${baseUrl}/watch/${courseId}?lang=${language}`
+            }
+
             // 1. Firebase에서 언어별 비디오 정보 직접 조회
             const languageVideoRef = doc(
                 db,
@@ -849,6 +863,13 @@ class CourseService {
                 return ['ko']
             }
 
+            // 메모리 캐시 확인
+            const cacheKey = `languages_${courseId}`
+            const cached = this.getFromMemoryCache(cacheKey)
+            if (cached) {
+                return cached
+            }
+
             // language_videos 서브컬렉션의 모든 문서 조회
             const languageVideosRef = collection(
                 db,
@@ -875,6 +896,10 @@ class CourseService {
             }
 
             console.log(`✅ 사용 가능한 언어: ${languages.join(', ')}`)
+
+            // 캐시에 저장
+            this.setMemoryCache(cacheKey, languages)
+
             return languages
 
         } catch (error) {

@@ -64,8 +64,8 @@
               </div>
             </div>
 
-            <!-- 언어 선택 (로그인 사용자만) -->
-            <div v-if="availableLanguages.length > 1 && !authStore.isGuest" class="language-selector">
+            <!-- 언어 선택 (로그인 사용자만, 여러 언어가 있을 때만) -->
+            <div v-if="availableLanguages && availableLanguages.length > 1 && !authStore.isGuest" class="language-selector">
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-gray-700">자막 언어</span>
                 <div class="language-buttons">
@@ -113,7 +113,7 @@
                 <QrCode class="w-3.5 h-3.5" />
                 QR 학습
               </span>
-              <span v-if="course.supported_languages_count > 1" class="status-tag language">
+              <span v-if="course.supported_languages_count && course.supported_languages_count > 1" class="status-tag language">
                 <Globe class="w-3.5 h-3.5" />
                 {{ course.supported_languages_count }}개 언어
               </span>
@@ -340,6 +340,7 @@
                 <p>Progress: {{ progress }}%</p>
                 <p>Selected: {{ isSelected }}</p>
                 <p>Languages: {{ course.supported_languages_count || 1 }}</p>
+                <p>Available Languages: {{ availableLanguages ? availableLanguages.length : 0 }}</p>
                 <p>QR Enabled: {{ course.qr_combined_enabled ? 'Yes' : 'No' }}</p>
               </div>
             </div>
@@ -471,11 +472,11 @@ const loadCourseDetail = async () => {
 
 // Firebase 비디오 로드
 const loadFirebaseVideo = async () => {
-  if (!course.value?.videoUrl) return
+  if (!course.value?.id) return
 
   try {
     const { videoUrl, metadata } = await CourseService.getVideoUrl(
-        course.value.videoUrl,
+        course.value.id,
         selectedLanguage.value
     )
 
@@ -490,19 +491,21 @@ const loadFirebaseVideo = async () => {
 
 // 사용 가능한 언어 로드
 const loadAvailableLanguages = async () => {
-  if (!course.value?.videoUrl) return
+  if (!course.value?.id) return
 
   try {
-    const { languages } = await CourseService.getAvailableLanguages(course.value.videoUrl)
-    availableLanguages.value = languages
+    // CourseService.getAvailableLanguages는 배열을 직접 반환
+    const languages = await CourseService.getAvailableLanguages(course.value.id)
+    availableLanguages.value = languages || ['ko']
   } catch (error) {
     console.error('언어 목록 로드 실패:', error)
+    availableLanguages.value = ['ko']
   }
 }
 
 // 카테고리 경로 표시
 const getCategoryDisplayPath = (course) => {
-  if (!course.category) return '기타'
+  if (!course || !course.category) return '기타'
 
   const { main, middle, leaf } = course.category
   const parts = []
@@ -532,7 +535,7 @@ const getDifficultyText = (difficulty) => {
     intermediate: '중급',
     advanced: '고급'
   }
-  return difficultyMap[difficulty] || difficulty
+  return difficultyMap[difficulty] || difficulty || '중급'
 }
 
 // 언어 이름
@@ -542,6 +545,8 @@ const getLanguageName = (langCode) => {
 
 // 선택 목록에 추가
 const addToSelectedList = () => {
+  if (!course.value) return
+
   const result = courseStore.addToSelected(course.value.id)
 
   if (result.success) {
@@ -554,11 +559,14 @@ const addToSelectedList = () => {
 
 // 선택 목록에서 제거
 const removeFromSelectedList = () => {
+  if (!course.value) return
   courseStore.removeFromSelected(course.value.id)
 }
 
 // 학습 페이지로 이동
 const goToLearning = () => {
+  if (!course.value) return
+
   if (authStore.isGuest) {
     router.push(`/learning/${course.value.id}`)
   } else {
@@ -568,6 +576,7 @@ const goToLearning = () => {
 
 // 수료증 다운로드
 const downloadCertificate = () => {
+  if (!course.value) return
   router.push(`/certificates?courseId=${course.value.id}`)
 }
 
@@ -604,8 +613,14 @@ watch(selectedLanguage, () => {
 // 마운트
 onMounted(async () => {
   await loadCourseDetail()
-  await loadFirebaseVideo()
-  await loadAvailableLanguages()
+
+  if (course.value) {
+    await Promise.all([
+      loadFirebaseVideo(),
+      loadAvailableLanguages()
+    ])
+  }
+
   courseStore.loadSelectedFromStorage()
 })
 </script>

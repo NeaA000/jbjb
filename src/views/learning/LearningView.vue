@@ -14,7 +14,7 @@
             ref="videoPlayer"
             :key="`${videoUrl}-${retryCount}`"
             :src="videoUrl"
-            :poster="course?.thumbnail"
+            :poster="course?.thumbnailUrl"
             class="main-video"
             controls
             preload="metadata"
@@ -151,6 +151,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCourseStore } from '@/stores/course'
 import CourseService from '@/services/courseService'
+import ProgressService from '@/services/progressService'
+import LanguageService from '@/services/languageService'
 import LoadingSpinner from '@/common/LoadingSpinner.vue'
 import {
   AlertCircle,
@@ -161,7 +163,7 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-vue-next'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/services/firebase'
 import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
@@ -203,27 +205,17 @@ const lastWatchedTime = ref(0)
 let progressSaveTimer = null
 let beforeUnloadHandler = null
 
-// 언어 이름 맵핑
-const languageNames = {
-  ko: '한국어',
-  en: 'English',
-  zh: '中文',
-  vi: 'Tiếng Việt',
-  th: 'ภาษาไทย',
-  ja: '日本語'
-}
-
-// 언어 이름 가져오기
+// 언어 이름 가져오기 - LanguageService 사용
 const getLanguageName = (code) => {
-  return languageNames[code] || code.toUpperCase()
+  return LanguageService.getLanguageName(code)
 }
 
-// 강의 정보 로드
+// 강의 정보 로드 - CourseService 사용
 const loadCourse = async () => {
   try {
     isLoading.value = true
 
-    // CourseService를 통해 상세 정보 가져오기 (TypeScript 버전과 동일한 방식)
+    // CourseService를 통해 상세 정보 가져오기
     course.value = await CourseService.getCourseById(courseId.value)
 
     if (!course.value) {
@@ -232,7 +224,7 @@ const loadCourse = async () => {
       return
     }
 
-    // URL에서 언어 정보 가져오기 (VideoWarningView에서 전달)
+    // URL에서 언어 정보 가져오기 또는 LanguageService에서 사용자 선호 언어 가져오기
     const queryLang = route.query.lang || localStorage.getItem('language') || 'ko'
     currentLanguage.value = queryLang
 
@@ -253,7 +245,7 @@ const loadCourse = async () => {
   }
 }
 
-// 사용 가능한 언어 목록 로드
+// 사용 가능한 언어 목록 로드 - CourseService 사용
 const loadAvailableLanguages = async () => {
   try {
     // CourseService.getAvailableLanguages 사용
@@ -277,7 +269,7 @@ const loadAvailableLanguages = async () => {
   }
 }
 
-// 비디오 URL 업데이트 (CourseService의 실제 메서드 사용)
+// 비디오 URL 업데이트 - CourseService 사용
 const updateVideoUrl = async () => {
   if (!course.value) return
 
@@ -321,7 +313,7 @@ const updateVideoUrl = async () => {
   }
 }
 
-// 언어 변경
+// 언어 변경 - 원본과 동일
 const changeLanguage = async (lang) => {
   if (lang === currentLanguage.value) return
 
@@ -335,28 +327,23 @@ const changeLanguage = async (lang) => {
   })
 }
 
-// 진행률 로드
+// 진행률 로드 - 원본과 동일하게 수정
 const loadProgress = async () => {
   try {
     if (authStore.user) {
-      // Firebase에서 진행률 정보 로드
-      const progressId = `${authStore.user.uid}_${courseId.value}`
-      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
-      const progressSnap = await getDoc(progressRef)
+      // ProgressService 사용하되 결과 처리는 원본과 동일하게
+      const progressData = await ProgressService.loadProgress(authStore.user.uid, courseId.value)
 
-      if (progressSnap.exists()) {
-        const data = progressSnap.data()
-        progress.value = data.progress || 0
-        lastWatchedTime.value = data.lastWatchedTime || 0
+      progress.value = progressData.progress || 0
+      lastWatchedTime.value = progressData.lastWatchedTime || 0
 
-        // 비디오 시간 복원
-        if (videoPlayer.value && lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5) {
-          videoPlayer.value.currentTime = lastWatchedTime.value
-          console.log(`⏰ 마지막 시청 위치로 이동: ${lastWatchedTime.value}초`)
-        }
+      // 비디오 시간 복원
+      if (videoPlayer.value && lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5) {
+        videoPlayer.value.currentTime = lastWatchedTime.value
+        console.log(`⏰ 마지막 시청 위치로 이동: ${lastWatchedTime.value}초`)
       }
     } else {
-      // 게스트는 로컬스토리지 사용
+      // 게스트는 원본과 동일한 키 사용
       const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
       const savedTime = localStorage.getItem(`lastTime_${courseId.value}`)
 
@@ -375,29 +362,22 @@ const loadProgress = async () => {
   }
 }
 
-// 진행률 저장 (디바운싱 적용)
+// 진행률 저장 - 원본과 동일하게 수정
 const saveProgress = async () => {
   try {
     if (authStore.user) {
-      // Firebase에 저장
-      const progressId = `${authStore.user.uid}_${courseId.value}`
-      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
-
+      // ProgressService 사용
       const progressData = {
-        userId: authStore.user.uid,
-        courseId: courseId.value,
         progress: progress.value,
-        lastWatchedTime: currentTime.value,
-        updatedAt: serverTimestamp(),
-        completed: progress.value >= 100,
+        currentTime: currentTime.value,
         duration: duration.value,
         language: currentLanguage.value
       }
 
-      await setDoc(progressRef, progressData, { merge: true })
+      await ProgressService.saveProgress(authStore.user.uid, courseId.value, progressData)
       console.log(`💾 진행률 저장: ${progress.value}%, 시간: ${currentTime.value}초`)
     } else {
-      // 게스트는 로컬스토리지에 저장
+      // 게스트는 원본과 동일한 키 사용
       localStorage.setItem(`progress_${courseId.value}`, progress.value.toString())
       localStorage.setItem(`lastTime_${courseId.value}`, currentTime.value.toString())
     }
@@ -448,7 +428,7 @@ const onVideoEnded = async () => {
   await saveProgress()
   console.log('🎉 강의 완료!')
 
-  // 수료 처리
+  // 수료 처리 - 원본과 동일
   if (authStore.user) {
     try {
       const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, `${authStore.user.uid}_${courseId.value}`)
