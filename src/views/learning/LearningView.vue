@@ -14,7 +14,7 @@
             ref="videoPlayer"
             :key="`${videoUrl}-${retryCount}`"
             :src="videoUrl"
-            :poster="course?.thumbnailUrl"
+            :poster="course?.thumbnail"
             class="main-video"
             controls
             preload="metadata"
@@ -257,8 +257,7 @@ const loadCourse = async () => {
 const loadAvailableLanguages = async () => {
   try {
     // CourseService.getAvailableLanguages 사용
-    const result = await CourseService.getAvailableLanguages(courseId.value)
-    const languages = result.languages || result // 응답 형식에 따라 처리
+    const languages = await CourseService.getAvailableLanguages(courseId.value)
 
     if (languages && languages.length > 0) {
       availableLanguages.value = languages
@@ -278,7 +277,7 @@ const loadAvailableLanguages = async () => {
   }
 }
 
-// 비디오 URL 업데이트 (CORS 대응 포함)
+// 비디오 URL 업데이트 (CourseService의 실제 메서드 사용)
 const updateVideoUrl = async () => {
   if (!course.value) return
 
@@ -288,44 +287,13 @@ const updateVideoUrl = async () => {
     videoError.value = null
 
     // CourseService의 실제 메서드 사용
-    let url = await CourseService.getVideoUrlForLanguage(courseId.value, currentLanguage.value)
+    const url = await CourseService.getVideoUrlForLanguage(courseId.value, currentLanguage.value)
 
     if (url) {
-      // CORS 문제가 있는 URL인지 체크
-      const isCORSProblem = url.includes('videouploader-production.up.railway.app')
-
-      if (isCORSProblem) {
-        console.warn('⚠️ CORS 문제 감지, 대체 URL 전략 사용')
-
-        // 1. Firebase Storage 직접 URL 시도
-        if (course.value.videoUrl && !course.value.videoUrl.includes('videouploader-production')) {
-          console.log('🔄 Firebase Storage URL 사용')
-          videoUrl.value = course.value.videoUrl
-        }
-        // 2. localhost 개발 환경인 경우 프록시 사용
-        else if (window.location.hostname === 'localhost') {
-          const proxyUrl = `/api/proxy/video?url=${encodeURIComponent(url)}`
-          console.log('🔄 로컬 프록시 URL 사용:', proxyUrl)
-          videoUrl.value = proxyUrl
-        }
-        // 3. 상대 경로로 변환 시도
-        else {
-          const urlParts = url.split('/video/')
-          if (urlParts.length > 1) {
-            videoUrl.value = `/video/${urlParts[1]}`
-            console.log('🔄 상대 경로 사용:', videoUrl.value)
-          } else {
-            videoUrl.value = url
-          }
-        }
-      } else {
-        videoUrl.value = url
-      }
-
-      console.log(`🎬 비디오 URL 최종 결정:`, {
+      videoUrl.value = url
+      console.log(`🎬 비디오 URL 업데이트:`, {
         language: currentLanguage.value,
-        originalUrl: url,
-        finalUrl: videoUrl.value,
+        url: url,
         courseId: courseId.value
       })
 
@@ -333,18 +301,7 @@ const updateVideoUrl = async () => {
       await nextTick()
 
       if (videoPlayer.value) {
-        // 기존 소스 제거
-        videoPlayer.value.pause()
-        videoPlayer.value.removeAttribute('src')
         videoPlayer.value.load()
-
-        // 새 소스 설정
-        setTimeout(() => {
-          if (videoPlayer.value) {
-            videoPlayer.value.src = videoUrl.value
-            videoPlayer.value.load()
-          }
-        }, 100)
       }
     } else {
       throw new Error('비디오 URL을 가져올 수 없습니다.')
@@ -358,11 +315,6 @@ const updateVideoUrl = async () => {
       console.warn('다른 언어 비디오를 찾을 수 없어 한국어로 재생합니다.')
       currentLanguage.value = 'ko'
       await updateVideoUrl()
-    } else if (course.value?.videoUrl) {
-      // 한국어도 실패하면 기본 URL 사용
-      console.warn('🔄 기본 비디오 URL로 재시도')
-      videoUrl.value = course.value.videoUrl
-      videoError.value = null
     }
   } finally {
     videoLoading.value = false
@@ -511,7 +463,6 @@ const onVideoEnded = async () => {
   }
 }
 
-// 비디오 에러 핸들링 개선
 const onVideoError = (event) => {
   console.error('❌ 비디오 오류:', event)
   videoLoading.value = false
@@ -536,60 +487,15 @@ const onVideoError = (event) => {
       break
   }
 
-  // CORS 에러 체크 및 상세 로깅
-  const currentUrl = videoUrl.value
-  console.log('🔍 에러 발생 URL:', currentUrl)
-
-  if (currentUrl?.includes('videouploader-production.up.railway.app')) {
-    message = 'CORS 정책으로 인해 비디오를 로드할 수 없습니다.'
-    console.warn('⚠️ CORS 에러 감지 - Railway 프록시 URL 문제')
-  }
-
   videoError.value = message
 
-  // 자동 재시도 (다양한 대체 전략)
+  // 자동 재시도
   if (retryCount.value < 3) {
     retryCount.value++
-    setTimeout(async () => {
+    setTimeout(() => {
       console.log(`🔄 비디오 로드 재시도 (${retryCount.value}/3)`)
-
-      // 재시도 전략
-      if (retryCount.value === 1) {
-        // 첫 번째 재시도: Firebase 직접 URL 사용
-        if (course.value?.videoUrl && !course.value.videoUrl.includes('videouploader-production')) {
-          console.log('📍 전략 1: Firebase 직접 URL 사용')
-          videoUrl.value = course.value.videoUrl
-          if (videoPlayer.value) {
-            videoPlayer.value.src = videoUrl.value
-            videoPlayer.value.load()
-          }
-          return
-        }
-      } else if (retryCount.value === 2) {
-        // 두 번째 재시도: 상대 경로 사용
-        if (currentUrl?.includes('video/')) {
-          const parts = currentUrl.split('/video/')
-          if (parts.length > 1) {
-            const relativePath = `/video/${parts[1]}`
-            console.log('📍 전략 2: 상대 경로 사용:', relativePath)
-            videoUrl.value = relativePath
-            if (videoPlayer.value) {
-              videoPlayer.value.src = videoUrl.value
-              videoPlayer.value.load()
-            }
-            return
-          }
-        }
-      }
-
-      // 마지막 재시도: updateVideoUrl 다시 호출
-      console.log('📍 전략 3: updateVideoUrl 재호출')
-      await updateVideoUrl()
+      updateVideoUrl()
     }, 2000)
-  } else {
-    // 모든 재시도 실패
-    console.error('❌ 모든 재시도 실패. 사용자에게 대체 방법 안내 필요')
-    videoError.value = '비디오를 재생할 수 없습니다. 다른 브라우저를 사용하거나 관리자에게 문의하세요.'
   }
 }
 

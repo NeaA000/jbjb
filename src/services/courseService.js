@@ -1,4 +1,4 @@
-// web/src/services/courseService.js - 수정된 버전
+// web/src/services/courseService.js - 성능 최적화 버전
 import {
     collection,
     doc,
@@ -17,9 +17,6 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { FIREBASE_COLLECTIONS, FLASK_SUBCOLLECTIONS } from '@/utils/constants'
-import ProgressService from './progressService'
-import EnrollmentService from './enrollmentService'
-import LanguageService from './languageService'
 
 class CourseService {
     // 캐시 설정
@@ -89,11 +86,6 @@ class CourseService {
         const baseUrl = import.meta.env.VITE_API_URL || ''
         const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
 
-        // 언어 정보 처리 - 안전하게 처리
-        const supportedLanguagesCount = data.supported_languages_count || 1
-        const supportedVideoLanguages = data.supported_video_languages || ['ko']
-        const availableLanguages = supportedVideoLanguages.length > 0 ? supportedVideoLanguages : ['ko']
-
         return {
             id: uploadDoc.id,
             // 기본 정보 (올바른 필드명 사용)
@@ -129,11 +121,10 @@ class CourseService {
             rating: data.rating || 0,
             reviewCount: data.review_count || data.reviewCount || 0,
 
-            // 언어 정보 - 안전하게 처리
+            // 언어 정보
             languageVideos: data.language_videos || {},
-            hasMultipleLanguages: supportedLanguagesCount > 1,
-            availableLanguages: availableLanguages,
-            supported_languages_count: supportedLanguagesCount,
+            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
+            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
             hasLanguageVideos: false, // 나중에 로드
 
             // Railway 프록시 정보
@@ -354,12 +345,12 @@ class CourseService {
 
             snapshot.forEach((doc) => {
                 const data = doc.data()
-                const language = data.language_code || doc.id
+                const language = data.language || doc.id
                 languageVideos[language] = {
                     language,
-                    videoUrl: data.video_url || data.railway_proxy_url || '',
-                    hasVideo: !!data.video_url || !!data.railway_proxy_url,
-                    uploadedAt: data.created_at || new Date()
+                    videoUrl: data.video_url || data.videoUrl || '',
+                    hasVideo: !!data.video_url || !!data.videoUrl,
+                    uploadedAt: data.uploadedAt || new Date()
                 }
             })
 
@@ -368,311 +359,12 @@ class CourseService {
             course.availableLanguages = Object.keys(languageVideos).length > 0 ?
                 Object.keys(languageVideos) : ['ko']
             course.hasMultipleLanguages = course.availableLanguages.length > 1
-            course.hasLanguageVideos = true
 
             // 메모리 캐시 업데이트
             const cacheKey = `course_${courseId}`
             this.setMemoryCache(cacheKey, course)
         } catch (error) {
             console.warn('언어별 비디오 로드 실패:', error)
-        }
-    }
-
-    /**
-     * ============ 확장된 기능들 ============
-     */
-
-    /**
-     * 강의와 진행률 정보를 함께 가져오기
-     */
-    static async getCourseWithProgress(courseId, userId) {
-        try {
-            const [course, progressData] = await Promise.all([
-                this.getCourseById(courseId),
-                ProgressService.loadProgress(userId, courseId)
-            ])
-
-            if (!course) return null
-
-            return {
-                ...course,
-                progress: progressData.progress,
-                lastWatchedTime: progressData.lastWatchedTime,
-                completed: progressData.completed
-            }
-        } catch (error) {
-            console.error('강의와 진행률 로드 오류:', error)
-            throw error
-        }
-    }
-
-    /**
-     * 사용자의 수강 강의 목록과 상세 정보를 함께 가져오기
-     */
-    static async getUserCoursesWithEnrollments(userId) {
-        try {
-            // 캐시 확인
-            const cacheKey = `user_courses_${userId}`
-            const cached = this.getFromMemoryCache(cacheKey)
-            if (cached) {
-                return cached
-            }
-
-            // 1. 사용자의 모든 수강 정보 가져오기
-            const enrollments = await EnrollmentService.getUserEnrollments(userId)
-
-            if (enrollments.length === 0) {
-                return []
-            }
-
-            // 2. 각 수강에 대한 강의 정보와 진행률 병렬 로드
-            const coursesWithData = await Promise.all(
-                enrollments.map(async (enrollment) => {
-                    const [course, progressData] = await Promise.all([
-                        this.getCourseById(enrollment.courseId),
-                        ProgressService.loadProgress(userId, enrollment.courseId)
-                    ])
-
-                    if (!course) return null
-
-                    // 선호 언어 설정
-                    const preferredLanguage = enrollment.preferredLanguage ||
-                        LanguageService.getUserPreferredLanguage()
-
-                    return {
-                        // 수강 정보
-                        enrollmentId: enrollment.id,
-                        enrolledAt: enrollment.enrolledAt,
-                        lastAccessedAt: enrollment.lastAccessedAt,
-                        status: enrollment.status,
-
-                        // 강의 정보
-                        ...course,
-
-                        // 진행률 정보
-                        progress: progressData.progress,
-                        lastWatchedTime: progressData.lastWatchedTime,
-                        completed: progressData.completed || progressData.progress >= 100,
-
-                        // 언어 정보
-                        preferredLanguage,
-                        currentLanguage: preferredLanguage
-                    }
-                })
-            )
-
-            // null 값 제거
-            const validCourses = coursesWithData.filter(course => course !== null)
-
-            // 캐시 저장
-            this.setMemoryCache(cacheKey, validCourses)
-
-            return validCourses
-        } catch (error) {
-            console.error('사용자 강의 목록 로드 오류:', error)
-            throw error
-        }
-    }
-
-    /**
-     * 카테고리별 강의 필터링
-     */
-    static async getCoursesByCategory(category, subcategory = null) {
-        try {
-            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
-
-            let q
-            if (subcategory) {
-                q = query(
-                    uploadsRef,
-                    where('main_category', '==', category),
-                    where('sub_category', '==', subcategory),
-                    orderBy('upload_date', 'desc')
-                )
-            } else {
-                q = query(
-                    uploadsRef,
-                    where('main_category', '==', category),
-                    orderBy('upload_date', 'desc')
-                )
-            }
-
-            const snapshot = await getDocs(q)
-            const courses = []
-
-            snapshot.forEach((doc) => {
-                courses.push(this.convertUploadToCourse(doc))
-            })
-
-            return courses
-        } catch (error) {
-            console.error('카테고리별 강의 조회 오류:', error)
-            return []
-        }
-    }
-
-    /**
-     * 검색 기능
-     */
-    static async searchCourses(searchTerm, filters = {}) {
-        try {
-            // 전체 강의 목록 가져오기 (캐시 사용)
-            const { courses } = await this.getCoursesFromFirestore()
-
-            // 검색어 정규화
-            const normalizedSearch = searchTerm.toLowerCase().trim()
-
-            // 필터링
-            let filteredCourses = courses.filter(course => {
-                // 제목 검색
-                const titleMatch = course.title.toLowerCase().includes(normalizedSearch)
-
-                // 설명 검색
-                const descriptionMatch = course.description.toLowerCase().includes(normalizedSearch)
-
-                // 카테고리 검색
-                const categoryMatch =
-                    course.category.main?.toLowerCase().includes(normalizedSearch) ||
-                    course.category.middle?.toLowerCase().includes(normalizedSearch) ||
-                    course.category.leaf?.toLowerCase().includes(normalizedSearch)
-
-                // 태그 검색
-                const tagMatch = course.tags.some(tag =>
-                    tag.toLowerCase().includes(normalizedSearch)
-                )
-
-                return titleMatch || descriptionMatch || categoryMatch || tagMatch
-            })
-
-            // 추가 필터 적용
-            if (filters.category) {
-                filteredCourses = filteredCourses.filter(course =>
-                    course.category.main === filters.category
-                )
-            }
-
-            if (filters.difficulty) {
-                filteredCourses = filteredCourses.filter(course =>
-                    course.difficulty === filters.difficulty
-                )
-            }
-
-            if (filters.hasVideo !== undefined) {
-                filteredCourses = filteredCourses.filter(course =>
-                    course.hasVideo === filters.hasVideo
-                )
-            }
-
-            if (filters.language) {
-                filteredCourses = filteredCourses.filter(course =>
-                    course.availableLanguages.includes(filters.language)
-                )
-            }
-
-            // 정렬
-            if (filters.sortBy) {
-                filteredCourses.sort((a, b) => {
-                    switch (filters.sortBy) {
-                        case 'popular':
-                            return b.enrolledCount - a.enrolledCount
-                        case 'rating':
-                            return b.rating - a.rating
-                        case 'newest':
-                            return new Date(b.createdAt) - new Date(a.createdAt)
-                        case 'alphabetical':
-                            return a.title.localeCompare(b.title)
-                        default:
-                            return 0
-                    }
-                })
-            }
-
-            return filteredCourses
-        } catch (error) {
-            console.error('강의 검색 오류:', error)
-            return []
-        }
-    }
-
-    /**
-     * 인기 강의 가져오기
-     */
-    static async getPopularCourses(limit = 10) {
-        try {
-            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
-            const q = query(
-                uploadsRef,
-                orderBy('enrolled_count', 'desc'),
-                limit(limit)
-            )
-
-            const snapshot = await getDocs(q)
-            const courses = []
-
-            snapshot.forEach((doc) => {
-                courses.push(this.convertUploadToCourse(doc))
-            })
-
-            return courses
-        } catch (error) {
-            console.error('인기 강의 조회 오류:', error)
-            return []
-        }
-    }
-
-    /**
-     * 신규 강의 가져오기
-     */
-    static async getNewCourses(days = 7, limit = 10) {
-        try {
-            const startDate = new Date()
-            startDate.setDate(startDate.getDate() - days)
-
-            const uploadsRef = collection(db, FIREBASE_COLLECTIONS.UPLOADS)
-            const q = query(
-                uploadsRef,
-                where('upload_date', '>=', startDate),
-                orderBy('upload_date', 'desc'),
-                limit(limit)
-            )
-
-            const snapshot = await getDocs(q)
-            const courses = []
-
-            snapshot.forEach((doc) => {
-                courses.push(this.convertUploadToCourse(doc))
-            })
-
-            return courses
-        } catch (error) {
-            console.error('신규 강의 조회 오류:', error)
-            return []
-        }
-    }
-
-    /**
-     * 관련 강의 추천
-     */
-    static async getRelatedCourses(courseId, limit = 5) {
-        try {
-            // 기준 강의 정보 가져오기
-            const baseCourse = await this.getCourseById(courseId)
-            if (!baseCourse) return []
-
-            // 같은 카테고리의 강의 검색
-            const relatedCourses = await this.getCoursesByCategory(
-                baseCourse.category.main,
-                baseCourse.category.middle
-            )
-
-            // 현재 강의 제외하고 랜덤 선택
-            return relatedCourses
-                .filter(course => course.id !== courseId)
-                .sort(() => Math.random() - 0.5)
-                .slice(0, limit)
-        } catch (error) {
-            console.error('관련 강의 추천 오류:', error)
-            return []
         }
     }
 
@@ -768,13 +460,6 @@ class CourseService {
         try {
             console.log(`🔍 언어별 비디오 URL 조회: ${courseId} (${language})`)
 
-            // courseId 유효성 검사
-            if (!courseId || typeof courseId !== 'string') {
-                console.error('유효하지 않은 courseId:', courseId)
-                const baseUrl = import.meta.env.VITE_API_URL || ''
-                return `${baseUrl}/watch/${courseId}?lang=${language}`
-            }
-
             // 1. Firebase에서 언어별 비디오 정보 직접 조회
             const languageVideoRef = doc(
                 db,
@@ -860,14 +545,7 @@ class CourseService {
             // courseId 유효성 검사
             if (!courseId || typeof courseId !== 'string') {
                 console.error('유효하지 않은 courseId:', courseId)
-                return ['ko']
-            }
-
-            // 메모리 캐시 확인
-            const cacheKey = `languages_${courseId}`
-            const cached = this.getFromMemoryCache(cacheKey)
-            if (cached) {
-                return cached
+                return { languages: ['ko'] }
             }
 
             // language_videos 서브컬렉션의 모든 문서 조회
@@ -892,34 +570,81 @@ class CourseService {
             // 언어가 없으면 기본값으로 한국어만 반환
             if (languages.length === 0) {
                 console.log('⚠️ 언어별 비디오가 없어 기본값(한국어) 반환')
-                return ['ko']
+                return { languages: ['ko'] }
             }
 
             console.log(`✅ 사용 가능한 언어: ${languages.join(', ')}`)
-
-            // 캐시에 저장
-            this.setMemoryCache(cacheKey, languages)
-
-            return languages
+            return { languages }
 
         } catch (error) {
             console.error('언어 목록 조회 오류:', error)
-            return ['ko'] // 오류 시 기본값
+            return { languages: ['ko'] } // 오류 시 기본값
         }
     }
 
     /**
      * 수강 신청 (배치 처리)
      */
-    static async enrollCourse(userId, courseId, additionalData = {}) {
-        return EnrollmentService.enrollCourse(userId, courseId, additionalData)
+    static async enrollCourse(userId, courseId) {
+        try {
+            const enrollmentData = {
+                userId,
+                courseId,
+                enrolledAt: serverTimestamp(),
+                progress: 0,
+                status: 'enrolled',
+                lastAccessedAt: serverTimestamp()
+            }
+
+            const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
+            const docRef = await addDoc(enrollmentsRef, enrollmentData)
+
+            // 캐시 무효화
+            const cacheKey = `enrollments_${userId}`
+            this.memoryCache.delete(cacheKey)
+
+            return {
+                id: docRef.id,
+                ...enrollmentData,
+                enrolledAt: new Date()
+            }
+        } catch (error) {
+            console.error('수강 신청 오류:', error)
+            throw error
+        }
     }
 
     /**
      * 여러 강의 일괄 수강 신청
      */
     static async enrollMultipleCourses(userId, courseIds) {
-        return EnrollmentService.enrollMultipleCourses(userId, courseIds)
+        const results = {
+            success: [],
+            failed: []
+        }
+
+        // 배치 처리로 성능 최적화
+        const batchSize = 5
+        for (let i = 0; i < courseIds.length; i += batchSize) {
+            const batch = courseIds.slice(i, i + batchSize)
+            const promises = batch.map(courseId =>
+                this.enrollCourse(userId, courseId)
+                    .then(result => ({ courseId, result, success: true }))
+                    .catch(error => ({ courseId, error, success: false }))
+            )
+
+            const batchResults = await Promise.all(promises)
+
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.success.push(result)
+                } else {
+                    results.failed.push(result)
+                }
+            })
+        }
+
+        return results
     }
 
     /**
@@ -942,14 +667,46 @@ class CourseService {
      * 사용자 진도 정보 가져오기
      */
     static async getProgress(userId, courseId) {
-        return ProgressService.loadProgress(userId, courseId)
+        try {
+            if (!userId || !courseId) return 0
+
+            const progressRef = doc(db, 'progress', `${userId}_${courseId}`)
+            const progressSnap = await getDoc(progressRef)
+
+            if (progressSnap.exists()) {
+                const data = progressSnap.data()
+                return data.progress || data.percentage || 0
+            }
+
+            return 0
+        } catch (error) {
+            console.error('진도 조회 오류:', error)
+            return 0
+        }
     }
 
     /**
      * 진도 업데이트
      */
-    static async updateProgress(userId, courseId, progressData) {
-        return ProgressService.saveProgress(userId, courseId, progressData)
+    static async updateProgress(userId, courseId, progress) {
+        try {
+            const progressRef = doc(db, 'progress', `${userId}_${courseId}`)
+
+            const progressData = {
+                userId,
+                courseId,
+                progress: Math.round(progress),
+                lastUpdated: serverTimestamp(),
+                completed: progress >= 100
+            }
+
+            await setDoc(progressRef, progressData, { merge: true })
+
+            return progressData
+        } catch (error) {
+            console.error('진도 업데이트 오류:', error)
+            throw error
+        }
     }
 
     /**
