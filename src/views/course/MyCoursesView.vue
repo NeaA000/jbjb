@@ -197,6 +197,9 @@ import {
   Loader2,
   Globe
 } from 'lucide-vue-next'
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
 const router = useRouter()
 const courseStore = useCourseStore()
@@ -380,7 +383,7 @@ const reviewCourse = (courseId) => {
 const refreshCourses = async () => {
   try {
     isLoading.value = true
-    await courseStore.loadUserEnrollments()
+    await loadMyCourses()
     ElMessage.success('강의 목록을 새로고침했습니다.')
   } catch (error) {
     ElMessage.error('새로고침에 실패했습니다.')
@@ -389,7 +392,25 @@ const refreshCourses = async () => {
   }
 }
 
-// 내 강의 로드
+// 진행률 정보 가져오기
+const loadProgressForEnrollment = async (userId, courseId) => {
+  try {
+    const progressId = `${userId}_${courseId}`
+    const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
+    const progressSnap = await getDoc(progressRef)
+
+    if (progressSnap.exists()) {
+      const data = progressSnap.data()
+      return data.progress || 0
+    }
+    return 0
+  } catch (error) {
+    console.error('진도 로드 오류:', error)
+    return 0
+  }
+}
+
+// 내 강의 로드 (수정됨 - 진행률 포함)
 const loadMyCourses = async () => {
   try {
     isLoading.value = true
@@ -401,8 +422,31 @@ const loadMyCourses = async () => {
       return
     }
 
-    // CourseService를 통해 상세 정보 포함한 수강 정보 가져오기
-    const enrollmentsWithCourses = await CourseService.getUserEnrollmentsWithCourses(authStore.user.uid)
+    // 1. enrollments 컬렉션에서 사용자의 수강 정보 가져오기
+    const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
+    const q = query(enrollmentsRef, where('userId', '==', authStore.user.uid))
+    const enrollmentSnapshot = await getDocs(q)
+
+    const enrollmentsWithCourses = []
+
+    // 2. 각 enrollment에 대해 강의 정보와 진행률 정보 가져오기
+    for (const enrollmentDoc of enrollmentSnapshot.docs) {
+      const enrollmentData = enrollmentDoc.data()
+
+      // 강의 정보 가져오기
+      const course = await CourseService.getCourseById(enrollmentData.courseId)
+
+      // 진행률 정보 가져오기
+      const progress = await loadProgressForEnrollment(authStore.user.uid, enrollmentData.courseId)
+
+      enrollmentsWithCourses.push({
+        id: enrollmentDoc.id,
+        ...enrollmentData,
+        course: course,
+        progress: progress,
+        status: progress >= 100 ? 'completed' : enrollmentData.status || 'enrolled'
+      })
+    }
 
     // store 업데이트
     courseStore.enrollments = enrollmentsWithCourses

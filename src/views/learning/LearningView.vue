@@ -146,7 +146,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCourseStore } from '@/stores/course'
@@ -161,6 +161,9 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-vue-next'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
 const router = useRouter()
 const route = useRoute()
@@ -194,6 +197,11 @@ const retryCount = ref(0)
 const isPlaying = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
+const lastWatchedTime = ref(0)
+
+// 진행률 저장 디바운싱
+let progressSaveTimer = null
+let beforeUnloadHandler = null
 
 // 언어 이름 맵핑
 const languageNames = {
@@ -331,18 +339,35 @@ const changeLanguage = async (lang) => {
 const loadProgress = async () => {
   try {
     if (authStore.user) {
-      // CourseService.getProgress 사용 (기존 메서드)
-      const savedProgress = await CourseService.getProgress(authStore.user.uid, courseId.value)
-      if (savedProgress) {
-        progress.value = savedProgress
+      // Firebase에서 진행률 정보 로드
+      const progressId = `${authStore.user.uid}_${courseId.value}`
+      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
+      const progressSnap = await getDoc(progressRef)
 
-        // 비디오 시간 복원은 비디오 로드 후에 처리
+      if (progressSnap.exists()) {
+        const data = progressSnap.data()
+        progress.value = data.progress || 0
+        lastWatchedTime.value = data.lastWatchedTime || 0
+
+        // 비디오 시간 복원
+        if (videoPlayer.value && lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5) {
+          videoPlayer.value.currentTime = lastWatchedTime.value
+          console.log(`⏰ 마지막 시청 위치로 이동: ${lastWatchedTime.value}초`)
+        }
       }
     } else {
       // 게스트는 로컬스토리지 사용
       const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
+      const savedTime = localStorage.getItem(`lastTime_${courseId.value}`)
+
       if (savedProgress) {
         progress.value = parseInt(savedProgress) || 0
+      }
+      if (savedTime && videoPlayer.value) {
+        const time = parseFloat(savedTime)
+        if (time > 0 && time < duration.value - 5) {
+          videoPlayer.value.currentTime = time
+        }
       }
     }
   } catch (error) {
@@ -350,7 +375,51 @@ const loadProgress = async () => {
   }
 }
 
-// 비디오 이벤트 핸들러 추가
+// 진행률 저장 (디바운싱 적용)
+const saveProgress = async () => {
+  try {
+    if (authStore.user) {
+      // Firebase에 저장
+      const progressId = `${authStore.user.uid}_${courseId.value}`
+      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
+
+      const progressData = {
+        userId: authStore.user.uid,
+        courseId: courseId.value,
+        progress: progress.value,
+        lastWatchedTime: currentTime.value,
+        updatedAt: serverTimestamp(),
+        completed: progress.value >= 100,
+        duration: duration.value,
+        language: currentLanguage.value
+      }
+
+      await setDoc(progressRef, progressData, { merge: true })
+      console.log(`💾 진행률 저장: ${progress.value}%, 시간: ${currentTime.value}초`)
+    } else {
+      // 게스트는 로컬스토리지에 저장
+      localStorage.setItem(`progress_${courseId.value}`, progress.value.toString())
+      localStorage.setItem(`lastTime_${courseId.value}`, currentTime.value.toString())
+    }
+  } catch (error) {
+    console.error('진행률 저장 실패:', error)
+  }
+}
+
+// 디바운싱된 진행률 저장
+const debouncedSaveProgress = () => {
+  // 기존 타이머 취소
+  if (progressSaveTimer) {
+    clearTimeout(progressSaveTimer)
+  }
+
+  // 5초 후에 저장
+  progressSaveTimer = setTimeout(() => {
+    saveProgress()
+  }, 5000)
+}
+
+// 비디오 이벤트 핸들러
 const onVideoLoaded = async (event) => {
   duration.value = event.target.duration
   console.log('🎥 비디오 로드됨:', {
@@ -369,13 +438,29 @@ const onVideoPlay = () => {
 
 const onVideoPause = () => {
   isPlaying.value = false
+  // 일시정지 시 즉시 진행률 저장
+  saveProgress()
 }
 
 const onVideoEnded = async () => {
   isPlaying.value = false
   progress.value = 100
-  await handleProgress(100)
+  await saveProgress()
   console.log('🎉 강의 완료!')
+
+  // 수료 처리
+  if (authStore.user) {
+    try {
+      const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, `${authStore.user.uid}_${courseId.value}`)
+      await setDoc(enrollmentRef, {
+        status: 'completed',
+        completedAt: serverTimestamp(),
+        progress: 100
+      }, { merge: true })
+    } catch (error) {
+      console.error('수료 처리 실패:', error)
+    }
+  }
 }
 
 const onVideoError = (event) => {
@@ -418,9 +503,10 @@ const onVideoTimeUpdate = (event) => {
   currentTime.value = event.target.currentTime
   const newProgress = Math.round((currentTime.value / duration.value) * 100)
 
-  if (newProgress !== progress.value) {
+  if (newProgress !== progress.value && !isNaN(newProgress)) {
     progress.value = newProgress
-    handleProgress(newProgress)
+    // 디바운싱된 저장 호출
+    debouncedSaveProgress()
   }
 }
 
@@ -470,6 +556,12 @@ const downloadCertificate = () => {
   alert('수료증 다운로드 기능은 준비 중입니다.')
 }
 
+// 페이지 이탈 시 진행률 저장
+const handleBeforeUnload = (event) => {
+  // 즉시 진행률 저장
+  saveProgress()
+}
+
 // 언어 변경 감지
 watch(currentLanguage, () => {
   updateVideoUrl()
@@ -480,6 +572,10 @@ onMounted(async () => {
   // 강의 로드
   await loadCourse()
 
+  // 페이지 이탈 이벤트 리스너 등록
+  beforeUnloadHandler = handleBeforeUnload
+  window.addEventListener('beforeunload', beforeUnloadHandler)
+
   // 비디오 URL 디버깅 정보
   if (videoUrl.value) {
     console.log('📺 비디오 URL 설정 완료:', {
@@ -488,7 +584,20 @@ onMounted(async () => {
       language: currentLanguage.value,
       userId: userId.value
     })
-    console.log('💡 HTML5 video 엘리먼트가 이 URL을 사용하여 비디오를 재생합니다.')
+  }
+})
+
+// 언마운트
+onUnmounted(() => {
+  // 마지막 진행률 저장
+  if (progressSaveTimer) {
+    clearTimeout(progressSaveTimer)
+  }
+  saveProgress()
+
+  // 이벤트 리스너 제거
+  if (beforeUnloadHandler) {
+    window.removeEventListener('beforeunload', beforeUnloadHandler)
   }
 })
 </script>
