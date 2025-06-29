@@ -62,7 +62,6 @@ class CourseService {
         })
     }
 
-
     /**
      * uploads 데이터를 courses 형식으로 변환 (올바른 데이터 구조 + hasVideo 필드 추가)
      */
@@ -444,38 +443,60 @@ class CourseService {
     }
 
     /**
-     * 언어별 비디오 URL 가져오기
+     * 언어별 비디오 URL 가져오기 (수정된 버전)
      */
     static async getVideoUrlForLanguage(courseId, language = 'ko') {
         try {
-            // 1. 먼저 메모리 캐시에서 강의 정보 확인
-            const cacheKey = `course_${courseId}`
-            const cached = this.getFromMemoryCache(cacheKey)
+            console.log(`🔍 언어별 비디오 URL 조회: ${courseId} (${language})`)
 
-            if (cached?.languageVideos?.[language]) {
-                console.log(`📦 캐시에서 ${language} 비디오 URL 반환`)
-                const videoUrl = cached.languageVideos[language].videoUrl
+            // 1. Firebase에서 언어별 비디오 정보 직접 조회
+            const languageVideoRef = doc(
+                db,
+                FIREBASE_COLLECTIONS.UPLOADS,
+                courseId,
+                FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS,
+                language
+            )
+
+            const languageVideoSnap = await getDoc(languageVideoRef)
+
+            if (languageVideoSnap.exists()) {
+                const data = languageVideoSnap.data()
+                const videoUrl = data.video_url || data.railway_proxy_url || ''
+
                 if (videoUrl) {
-                    return videoUrl
+                    console.log(`✅ ${language} 비디오 URL 찾음: ${videoUrl}`)
+                    return this._convertToAbsoluteUrl(videoUrl)
                 }
             }
 
-            // 2. 강의 정보가 없으면 로드
-            const course = await this.getCourseById(courseId)
-            if (!course) {
-                throw new Error(`강의를 찾을 수 없습니다: ${courseId}`)
-            }
+            // 2. 요청한 언어의 비디오가 없으면 한국어로 폴백
+            if (language !== 'ko') {
+                console.log(`⚠️ ${language} 비디오가 없어 한국어로 폴백`)
 
-            // 3. 언어별 비디오 정보 확인
-            if (course.languageVideos?.[language]) {
-                const videoUrl = course.languageVideos[language].videoUrl
-                if (videoUrl) {
-                    return videoUrl
+                const koVideoRef = doc(
+                    db,
+                    FIREBASE_COLLECTIONS.UPLOADS,
+                    courseId,
+                    FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS,
+                    'ko'
+                )
+
+                const koVideoSnap = await getDoc(koVideoRef)
+
+                if (koVideoSnap.exists()) {
+                    const koData = koVideoSnap.data()
+                    const koVideoUrl = koData.video_url || koData.railway_proxy_url || ''
+
+                    if (koVideoUrl) {
+                        console.log(`✅ 한국어 비디오 URL로 폴백: ${koVideoUrl}`)
+                        return this._convertToAbsoluteUrl(koVideoUrl)
+                    }
                 }
             }
 
-            // 4. 언어별 비디오가 없으면 기본 URL 반환
-            console.log(`⚠️ ${language} 비디오가 없어 기본 URL 사용`)
+            // 3. 모든 방법이 실패하면 기본 watch URL 반환
+            console.log(`⚠️ 비디오 URL을 찾을 수 없어 기본 URL 사용`)
             const baseUrl = import.meta.env.VITE_API_URL || ''
             return `${baseUrl}/watch/${courseId}?lang=${language}`
 
@@ -484,6 +505,62 @@ class CourseService {
             // 오류 시 기본 URL 반환
             const baseUrl = import.meta.env.VITE_API_URL || ''
             return `${baseUrl}/watch/${courseId}?lang=${language}`
+        }
+    }
+
+    /**
+     * Railway 프록시 URL을 절대 경로로 변환
+     */
+    static _convertToAbsoluteUrl(url) {
+        if (!url) return ''
+
+        // 이미 절대 경로인 경우 그대로 반환
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            return url
+        }
+
+        // 상대 경로인 경우 API URL을 앞에 추가
+        const apiUrl = import.meta.env.VITE_API_URL || ''
+        return `${apiUrl}${url}`
+    }
+
+    /**
+     * 사용 가능한 언어 목록 가져오기
+     */
+    static async getAvailableLanguages(courseId) {
+        try {
+            console.log(`🌐 사용 가능한 언어 목록 조회: ${courseId}`)
+
+            // language_videos 서브컬렉션의 모든 문서 조회
+            const languageVideosRef = collection(
+                db,
+                FIREBASE_COLLECTIONS.UPLOADS,
+                courseId,
+                FLASK_SUBCOLLECTIONS.LANGUAGE_VIDEOS
+            )
+
+            const snapshot = await getDocs(languageVideosRef)
+            const languages = []
+
+            snapshot.forEach((doc) => {
+                const data = doc.data()
+                // video_url이 있는 언어만 추가
+                if (data.video_url || data.railway_proxy_url) {
+                    languages.push(doc.id)
+                }
+            })
+
+            // 언어가 없으면 기본값으로 한국어만 반환
+            if (languages.length === 0) {
+                return ['ko']
+            }
+
+            console.log(`✅ 사용 가능한 언어: ${languages.join(', ')}`)
+            return languages
+
+        } catch (error) {
+            console.error('언어 목록 조회 오류:', error)
+            return ['ko'] // 오류 시 기본값
         }
     }
 

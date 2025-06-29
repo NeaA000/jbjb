@@ -43,11 +43,11 @@
         </header>
 
         <!-- 언어 변경 (다국어 지원 강의만) -->
-        <div v-if="course?.hasMultipleLanguages" class="language-switcher">
+        <div v-if="course?.hasMultipleLanguages || availableLanguages.length > 1" class="language-switcher">
           <h3>언어 선택</h3>
           <div class="language-options">
             <button
-                v-for="lang in course.availableLanguages"
+                v-for="lang in availableLanguages"
                 :key="lang"
                 @click="changeLanguage(lang)"
                 class="language-btn"
@@ -142,11 +142,12 @@ const props = defineProps({
 const isLoading = ref(true)
 const course = ref(null)
 const courseId = computed(() => props.id)
-const userId = computed(() => authStore.user?.uid || 'guest') // userId 추가
+const userId = computed(() => authStore.user?.uid || 'guest')
 const currentLanguage = ref('ko')
 const videoUrl = ref('')
 const progress = ref(0)
 const showShakeWarning = ref(false)
+const availableLanguages = ref(['ko']) // 사용 가능한 언어 목록
 
 // 언어 이름 맵핑
 const languageNames = {
@@ -168,7 +169,7 @@ const loadCourse = async () => {
   try {
     isLoading.value = true
 
-    // CourseService를 통해 상세 정보 가져오기 (언어별 비디오 포함)
+    // CourseService를 통해 상세 정보 가져오기
     course.value = await CourseService.getCourseById(courseId.value)
 
     if (!course.value) {
@@ -177,12 +178,15 @@ const loadCourse = async () => {
       return
     }
 
-    // URL에서 언어 정보 가져오기
-    const queryLang = route.query.lang || 'ko'
+    // URL에서 언어 정보 가져오기 (VideoWarningView에서 전달)
+    const queryLang = route.query.lang || localStorage.getItem('language') || 'ko'
     currentLanguage.value = queryLang
 
+    // 사용 가능한 언어 목록 로드
+    await loadAvailableLanguages()
+
     // 비디오 URL 설정
-    updateVideoUrl()
+    await updateVideoUrl()
 
     // 기존 진행률 로드
     await loadProgress()
@@ -196,26 +200,75 @@ const loadCourse = async () => {
   }
 }
 
-// 비디오 URL 업데이트
-const updateVideoUrl = () => {
+// 사용 가능한 언어 목록 로드
+const loadAvailableLanguages = async () => {
+  try {
+    // Firebase에서 언어별 비디오 정보 확인
+    const languages = await CourseService.getAvailableLanguages(courseId.value)
+    if (languages && languages.length > 0) {
+      availableLanguages.value = languages
+    } else {
+      // 기본값: 한국어만
+      availableLanguages.value = ['ko']
+    }
+  } catch (error) {
+    console.warn('언어 목록 로드 실패:', error)
+    availableLanguages.value = ['ko']
+  }
+}
+
+// 비디오 URL 업데이트 (async로 수정)
+const updateVideoUrl = async () => {
   if (!course.value) return
 
-  // CourseService의 getVideoUrlForLanguage 메서드 사용
-  const url = CourseService.getVideoUrlForLanguage(course.value.id, currentLanguage.value)
-  videoUrl.value = url
+  try {
+    // CourseService에서 언어별 비디오 URL 가져오기
+    const url = await CourseService.getVideoUrlForLanguage(courseId.value, currentLanguage.value)
 
-  console.log(`🎬 비디오 URL 업데이트:`, {
-    language: currentLanguage.value,
-    url: url
-  })
+    // Railway 프록시 URL이 상대 경로인 경우 절대 경로로 변환
+    if (url && url.startsWith('/')) {
+      const apiUrl = import.meta.env.VITE_API_URL || ''
+      videoUrl.value = `${apiUrl}${url}`
+    } else {
+      videoUrl.value = url
+    }
+
+    console.log(`🎬 비디오 URL 업데이트:`, {
+      language: currentLanguage.value,
+      url: videoUrl.value
+    })
+  } catch (error) {
+    console.error('비디오 URL 업데이트 실패:', error)
+
+    // 에러 시 폴백 처리
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+
+    // 1차 폴백: 한국어 비디오 시도
+    if (currentLanguage.value !== 'ko') {
+      try {
+        const koUrl = await CourseService.getVideoUrlForLanguage(courseId.value, 'ko')
+        if (koUrl) {
+          videoUrl.value = koUrl.startsWith('/') ? `${apiUrl}${koUrl}` : koUrl
+          console.warn(`${currentLanguage.value} 영상이 없어 한국어로 재생합니다.`)
+          return
+        }
+      } catch (e) {
+        console.error('한국어 비디오도 로드 실패:', e)
+      }
+    }
+
+    // 2차 폴백: 기본 watch URL
+    videoUrl.value = `${apiUrl}/watch/${courseId.value}?lang=${currentLanguage.value}`
+  }
 }
 
 // 언어 변경
-const changeLanguage = (lang) => {
+const changeLanguage = async (lang) => {
   if (lang === currentLanguage.value) return
 
   currentLanguage.value = lang
-  updateVideoUrl()
+  localStorage.setItem('language', lang) // 선택한 언어 저장
+  await updateVideoUrl()
 
   // URL 쿼리 파라미터 업데이트
   router.replace({
@@ -226,14 +279,11 @@ const changeLanguage = (lang) => {
 // 진행률 로드
 const loadProgress = async () => {
   try {
-    // Firebase에서 진행률 가져오기
     if (authStore.user) {
-      const savedProgress = await CourseService.getProgress(courseId.value, authStore.user.uid)
-      if (savedProgress) {
-        progress.value = savedProgress
-      }
+      const savedProgress = await CourseService.getProgress(authStore.user.uid, courseId.value)
+      progress.value = savedProgress || 0
     } else {
-      // 로그인하지 않은 경우 로컬 스토리지 사용
+      // 게스트는 로컬스토리지 사용
       const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
       if (savedProgress) {
         progress.value = parseInt(savedProgress) || 0
@@ -253,11 +303,15 @@ const handleProgress = async (newProgress) => {
 
   // Firebase 업데이트
   if (authStore.user) {
-    await CourseService.updateProgress(
-        courseId.value,
-        authStore.user.uid,
-        progress.value
-    )
+    try {
+      await CourseService.updateProgress(
+          authStore.user.uid,
+          courseId.value,
+          progress.value
+      )
+    } catch (error) {
+      console.error('진도 저장 실패:', error)
+    }
   }
 
   // 100% 완료 시 처리
@@ -296,6 +350,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* =================== CSS 변수 Import =================== */
+@import '@/assets/main.css';
+
 /* 컨테이너 */
 .learning-container {
   min-height: 100vh;
@@ -320,10 +377,11 @@ onMounted(() => {
 /* 비디오 섹션 */
 .video-section {
   background: #000;
-  border-radius: 1rem;
+  border-radius: var(--radius-xl, 1rem);
   overflow: hidden;
   aspect-ratio: 16 / 9;
   position: relative;
+  box-shadow: var(--shadow-lg);
 }
 
 .no-video {
@@ -339,9 +397,9 @@ onMounted(() => {
 /* 강의 정보 섹션 */
 .course-info-section {
   background: white;
-  border-radius: 1rem;
+  border-radius: var(--radius-xl, 1rem);
   padding: 2rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-base);
 }
 
 .course-header {
@@ -349,8 +407,8 @@ onMounted(() => {
 }
 
 .course-title {
-  font-size: 1.75rem;
-  font-weight: 700;
+  font-size: var(--text-3xl, 1.875rem);
+  font-weight: var(--font-bold, 700);
   color: var(--text-primary);
   margin: 0 0 1rem;
 }
@@ -359,12 +417,12 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  font-size: 0.875rem;
+  font-size: var(--text-sm, 0.875rem);
 }
 
 .category {
   padding: 0.25rem 0.75rem;
-  background: var(--bg-tertiary);
+  background: var(--bg-tertiary, #f3f4f6);
   color: var(--text-secondary);
   border-radius: 2rem;
 }
@@ -381,8 +439,8 @@ onMounted(() => {
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem 0.75rem;
-  background: var(--primary-light);
-  color: var(--primary);
+  background: rgba(102, 126, 234, 0.1);
+  color: var(--color-primary, #667eea);
   border-radius: 2rem;
   font-weight: 500;
 }
@@ -391,13 +449,13 @@ onMounted(() => {
 .language-switcher {
   margin-bottom: 2rem;
   padding: 1.5rem;
-  background: var(--bg-tertiary);
-  border-radius: 0.75rem;
+  background: var(--bg-tertiary, #f3f4f6);
+  border-radius: var(--radius-lg, 0.75rem);
 }
 
 .language-switcher h3 {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-base, 1rem);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-primary);
   margin: 0 0 1rem;
 }
@@ -412,21 +470,22 @@ onMounted(() => {
   padding: 0.5rem 1rem;
   border: 1px solid var(--border-primary);
   background: white;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: var(--text-sm, 0.875rem);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast, 0.2s);
 }
 
 .language-btn:hover {
   background: var(--bg-secondary);
+  border-color: var(--color-primary);
 }
 
 .language-btn.active {
-  background: var(--primary);
+  background: var(--color-primary, #667eea);
   color: white;
-  border-color: var(--primary);
+  border-color: var(--color-primary, #667eea);
 }
 
 /* 강의 설명 */
@@ -435,15 +494,15 @@ onMounted(() => {
 }
 
 .course-description h3 {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-base, 1rem);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-primary);
   margin: 0 0 0.75rem;
 }
 
 .course-description p {
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: var(--leading-relaxed, 1.6);
   margin: 0;
 }
 
@@ -453,15 +512,15 @@ onMounted(() => {
 }
 
 .progress-section h3 {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-base, 1rem);
+  font-weight: var(--font-semibold, 600);
   color: var(--text-primary);
   margin: 0 0 0.75rem;
 }
 
 .progress-bar {
   height: 12px;
-  background: #e5e7eb; /* 명확한 회색 배경 */
+  background: var(--bg-tertiary, #e5e7eb);
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 0.5rem;
@@ -469,12 +528,38 @@ onMounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: #10b981; /* 명확한 초록색 */
+  background: var(--color-success, #10b981);
   transition: width 0.3s ease;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.2),
+      transparent
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .progress-text {
-  font-size: 0.875rem;
+  font-size: var(--text-sm, 0.875rem);
   color: var(--text-secondary);
   margin: 0;
 }
@@ -493,31 +578,32 @@ onMounted(() => {
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
   border: none;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: var(--font-medium, 500);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast, 0.2s);
 }
 
 .btn-primary {
-  background: var(--primary);
+  background: var(--color-primary, #667eea);
   color: white;
 }
 
 .btn-primary:hover {
-  background: var(--primary-dark);
+  background: var(--color-primary-dark, #5a67d8);
   transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .btn-secondary {
-  background: var(--bg-tertiary);
+  background: var(--bg-tertiary, #f3f4f6);
   color: var(--text-primary);
   border: 1px solid var(--border-primary);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-quaternary);
+  background: var(--bg-quaternary, #e5e7eb);
 }
 
 /* 흔들림 경고 모달 */
@@ -530,24 +616,46 @@ onMounted(() => {
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
+  animation: fadeIn var(--transition-fast) ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal-content {
   background: white;
-  border-radius: 1rem;
+  border-radius: var(--radius-xl, 1rem);
   padding: 2rem;
   text-align: center;
   max-width: 400px;
   width: 100%;
+  animation: slideUp var(--transition-base) ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .modal-content svg {
-  color: var(--warning);
+  color: var(--color-warning, #f59e0b);
   margin-bottom: 1rem;
 }
 
 .modal-content h2 {
-  font-size: 1.5rem;
+  font-size: var(--text-2xl, 1.5rem);
   color: var(--text-primary);
   margin: 0 0 0.5rem;
 }
@@ -559,12 +667,16 @@ onMounted(() => {
 
 /* 반응형 */
 @media (max-width: 768px) {
+  .learning-wrapper {
+    padding: 1rem;
+  }
+
   .course-info-section {
     padding: 1.5rem;
   }
 
   .course-title {
-    font-size: 1.5rem;
+    font-size: var(--text-2xl, 1.5rem);
   }
 
   .action-buttons {

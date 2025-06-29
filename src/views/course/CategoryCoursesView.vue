@@ -1,67 +1,74 @@
 <!-- web/src/views/course/CategoryCoursesView.vue -->
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen bg-gradient-to-b from-gray-50 to-white">
     <!-- 헤더 -->
-    <div class="bg-white shadow-sm sticky top-0 z-30">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-16">
-          <div class="flex items-center space-x-4">
-            <button
-                @click="router.back()"
-                class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <ArrowLeft class="w-5 h-5 text-gray-600" />
-            </button>
-            <div>
-              <h1 class="text-xl font-semibold text-gray-900">{{ leafCategory }} 강의</h1>
-              <p class="text-sm text-gray-500">{{ getCategoryPath() }}</p>
+    <div class="header-section sticky top-0 z-30">
+      <div class="header-gradient">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex items-center justify-between h-20">
+            <div class="flex items-center space-x-4">
+              <button
+                  @click="router.back()"
+                  class="back-button"
+              >
+                <ArrowLeft class="w-5 h-5" />
+              </button>
+              <div>
+                <h1 class="text-2xl font-bold text-gray-900">{{ leafCategory }} 강의</h1>
+                <p class="text-sm text-gray-600 mt-1">{{ getCategoryPath() }}</p>
+              </div>
+            </div>
+            <div class="category-icon-wrapper">
+              <component :is="getCategoryIcon()" class="w-8 h-8 text-white" />
             </div>
           </div>
-          <component :is="getCategoryIcon()" class="w-6 h-6 text-gray-600" />
         </div>
       </div>
     </div>
 
     <!-- 메인 콘텐츠 -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-32">
-      <!-- 카테고리 설명 -->
-      <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
-        <div class="flex items-start space-x-4">
+      <!-- 카테고리 설명 카드 -->
+      <div class="category-info-card">
+        <div class="flex items-start space-x-5">
           <div
-              :class="getCategoryStyle(leafCategory)"
-              class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+              :class="[getCategoryStyle(leafCategory), 'category-icon-box']"
           >
-            <component :is="getCategoryIcon()" class="w-6 h-6" />
+            <component :is="getCategoryIcon()" class="w-7 h-7" />
           </div>
           <div class="flex-1">
-            <h2 class="text-lg font-semibold text-gray-900 mb-2">
+            <h2 class="text-xl font-bold text-gray-900 mb-3">
               {{ leafCategory }} 관련 교육
             </h2>
-            <p class="text-gray-600">
+            <p class="text-gray-600 leading-relaxed">
               {{ getCategoryDescription() }}
             </p>
-            <div class="mt-3 flex items-center space-x-4 text-sm text-gray-500">
-              <span class="flex items-center">
-                <BookOpen class="w-4 h-4 mr-1" />
-                {{ filteredCourses.length }}개 강의
-              </span>
-              <span class="flex items-center">
-                <Users class="w-4 h-4 mr-1" />
-                {{ getTotalEnrolled() }}명 수강
-              </span>
+            <div class="mt-4 flex items-center space-x-6 text-sm">
+              <div class="stat-item">
+                <BookOpen class="w-5 h-5" />
+                <span>{{ filteredCourses.length }}개 강의</span>
+              </div>
+              <div class="stat-item">
+                <Users class="w-5 h-5" />
+                <span>{{ getTotalEnrolled() }}명 수강</span>
+              </div>
+              <div class="stat-item">
+                <Globe class="w-5 h-5" />
+                <span>다국어 지원</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 정렬 옵션 -->
-      <div class="flex justify-between items-center mb-4">
-        <p class="text-sm text-gray-600">
+      <div class="sort-section">
+        <p class="text-sm font-medium text-gray-700">
           총 {{ filteredCourses.length }}개의 강의
         </p>
         <select
             v-model="sortBy"
-            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            class="sort-select"
         >
           <option value="newest">최신순</option>
           <option value="popular">인기순</option>
@@ -71,32 +78,49 @@
       </div>
 
       <!-- 로딩 상태 -->
-      <div v-if="isLoading" class="flex justify-center items-center h-64">
-        <div class="flex items-center space-x-2">
-          <Loader2 class="w-6 h-6 animate-spin text-blue-500" />
-          <span class="text-gray-600">강의를 불러오는 중...</span>
+      <div v-if="isLoading" class="loading-container">
+        <div class="loading-content">
+          <Loader2 class="w-8 h-8 animate-spin text-blue-600" />
+          <span class="text-gray-600 mt-3">강의를 불러오는 중...</span>
         </div>
       </div>
 
       <!-- 강의 목록 -->
-      <div v-else-if="sortedCourses.length > 0" class="space-y-4">
+      <div v-else-if="sortedCourses.length > 0" class="course-list">
         <div
             v-for="course in sortedCourses"
             :key="course.id"
-            class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+            class="course-card"
+            :class="{
+              'course-enrolled': getEnrollmentStatus(course.id) === 'enrolled',
+              'course-completed': getEnrollmentStatus(course.id) === 'completed'
+            }"
         >
-          <div class="p-6">
-            <div class="flex items-start space-x-4">
+          <div class="course-card-body">
+            <div class="flex items-start space-x-5">
               <!-- 썸네일 -->
-              <div class="flex-shrink-0 w-48 h-27 bg-gray-100 rounded-lg overflow-hidden">
-                <img
-                    v-if="course.thumbnail"
-                    :src="course.thumbnail"
-                    :alt="course.title"
-                    class="w-full h-full object-cover"
-                />
-                <div v-else class="w-full h-full flex items-center justify-center">
-                  <PlayCircle class="w-12 h-12 text-gray-400" />
+              <div class="course-thumbnail">
+                <div class="thumbnail-wrapper">
+                  <img
+                      v-if="course.thumbnail"
+                      :src="course.thumbnail"
+                      :alt="course.title"
+                      class="thumbnail-image"
+                      @error="handleImageError"
+                  />
+                  <div v-else class="thumbnail-placeholder">
+                    <PlayCircle class="w-14 h-14 text-gray-400" />
+                  </div>
+
+                  <!-- 수강 상태 오버레이 -->
+                  <div v-if="getEnrollmentStatus(course.id) !== 'not-enrolled'"
+                       class="status-overlay">
+                    <CheckCircle v-if="getEnrollmentStatus(course.id) === 'completed'"
+                                 class="w-8 h-8 text-white" />
+                    <div v-else class="progress-circle">
+                      {{ getProgress(course.id) }}%
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -104,85 +128,98 @@
               <div class="flex-1 min-w-0">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
-                    <!-- 수강 상태 배지 -->
-                    <div v-if="getEnrollmentStatus(course.id) !== 'not-enrolled'" class="mb-2">
-                      <span
-                          :class="[
-                          'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                          getEnrollmentStatus(course.id) === 'completed'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-blue-100 text-blue-800'
-                        ]"
-                      >
-                        <CheckCircle class="w-3 h-3 mr-1" />
-                        {{ getEnrollmentStatus(course.id) === 'completed' ? '수료 완료' : `진행중 ${getProgress(course.id)}%` }}
+                    <!-- 상태 배지 -->
+                    <div class="flex items-center gap-2 mb-3">
+                      <span v-if="getEnrollmentStatus(course.id) !== 'not-enrolled'"
+                            :class="[
+                              'status-badge',
+                              getEnrollmentStatus(course.id) === 'completed'
+                                ? 'badge-completed'
+                                : 'badge-enrolled'
+                            ]">
+                        <CheckCircle class="w-3.5 h-3.5" />
+                        {{ getEnrollmentStatus(course.id) === 'completed'
+                          ? '수료 완료'
+                          : `진행중 ${getProgress(course.id)}%` }}
+                      </span>
+
+                      <!-- QR 접근 가능 배지 -->
+                      <span v-if="course.qr_combined_enabled"
+                            class="status-badge badge-qr">
+                        <QrCode class="w-3.5 h-3.5" />
+                        QR 학습
+                      </span>
+
+                      <!-- 다국어 지원 배지 -->
+                      <span v-if="course.supported_languages_count > 1"
+                            class="status-badge badge-language">
+                        <Globe class="w-3.5 h-3.5" />
+                        {{ course.supported_languages_count }}개 언어
                       </span>
                     </div>
 
                     <!-- 제목 -->
                     <h3
                         @click="goToCourseDetail(course.id)"
-                        class="text-lg font-semibold text-gray-900 mb-2 hover:text-blue-600 cursor-pointer"
+                        class="course-title"
                     >
                       {{ course.title }}
                     </h3>
 
                     <!-- 설명 -->
-                    <p class="text-gray-600 text-sm mb-3 line-clamp-2">
+                    <p class="course-description">
                       {{ course.description }}
                     </p>
 
                     <!-- 메타 정보 -->
-                    <div class="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-                      <span class="flex items-center">
-                        <User class="w-4 h-4 mr-1" />
-                        {{ course.instructor || '전문 강사' }}
-                      </span>
-                      <span class="flex items-center">
-                        <Clock class="w-4 h-4 mr-1" />
-                        {{ course.duration || '30분' }}
-                      </span>
-                      <span class="flex items-center">
-                        <BarChart class="w-4 h-4 mr-1" />
-                        {{ getDifficultyText(course.difficulty) }}
-                      </span>
-                      <span v-if="course.rating" class="flex items-center">
-                        <Star class="w-4 h-4 mr-1 text-yellow-400 fill-current" />
-                        {{ course.rating.toFixed(1) }}
-                      </span>
+                    <div class="course-meta">
+                      <div class="meta-item">
+                        <User class="w-4 h-4" />
+                        <span>{{ course.instructor || '전문 강사' }}</span>
+                      </div>
+                      <div class="meta-item">
+                        <Clock class="w-4 h-4" />
+                        <span>{{ course.duration || '30분' }}</span>
+                      </div>
+                      <div class="meta-item">
+                        <BarChart class="w-4 h-4" />
+                        <span>{{ getDifficultyText(course.difficulty) }}</span>
+                      </div>
+                      <div v-if="course.rating" class="meta-item">
+                        <Star class="w-4 h-4 text-yellow-500 fill-current" />
+                        <span>{{ course.rating.toFixed(1) }}</span>
+                      </div>
                     </div>
                   </div>
 
                   <!-- 액션 버튼 -->
-                  <div class="ml-4 flex-shrink-0">
+                  <div class="ml-6 flex-shrink-0">
                     <button
                         v-if="getEnrollmentStatus(course.id) === 'not-enrolled'"
                         @click="isSelected(course.id) ? removeFromSelectedList(course.id) : addToSelectedList(course.id)"
                         :class="[
-                        'px-4 py-2 text-sm font-medium rounded-lg transition-colors inline-flex items-center',
-                        isSelected(course.id)
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      ]"
+                          'action-button',
+                          isSelected(course.id) ? 'button-selected' : 'button-primary'
+                        ]"
                     >
-                      <Check v-if="isSelected(course.id)" class="w-4 h-4 mr-1" />
-                      <Plus v-else class="w-4 h-4 mr-1" />
+                      <Check v-if="isSelected(course.id)" class="w-5 h-5 mr-2" />
+                      <Plus v-else class="w-5 h-5 mr-2" />
                       {{ isSelected(course.id) ? '선택됨' : '선택하기' }}
                     </button>
                     <button
                         v-else-if="getEnrollmentStatus(course.id) === 'enrolled'"
                         @click="router.push(`/learning/${course.id}`)"
-                        class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center"
+                        class="action-button button-continue"
                     >
-                      <Play class="w-4 h-4 mr-1" />
+                      <Play class="w-5 h-5 mr-2" />
                       이어보기
                     </button>
                     <button
                         v-else
                         @click="router.push(`/certificates?courseId=${course.id}`)"
-                        class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors inline-flex items-center"
+                        class="action-button button-certificate"
                     >
-                      <Award class="w-4 h-4 mr-1" />
+                      <Award class="w-5 h-5 mr-2" />
                       수료증
                     </button>
                   </div>
@@ -194,21 +231,23 @@
       </div>
 
       <!-- 강의 없음 -->
-      <div v-else class="text-center py-16">
-        <component :is="getCategoryIcon()" class="w-16 h-16 text-gray-400 mx-auto mb-4" />
-        <h2 class="text-xl font-medium text-gray-900 mb-2">
-          {{ leafCategory }} 카테고리에 강의가 없습니다
-        </h2>
-        <p class="text-gray-500 mb-6">
-          다른 카테고리를 확인해보세요
-        </p>
-        <button
-            @click="router.push('/courses')"
-            class="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center"
-        >
-          <BookOpen class="w-5 h-5 mr-2" />
-          전체 강의 보기
-        </button>
+      <div v-else class="empty-state">
+        <div class="empty-state-content">
+          <component :is="getCategoryIcon()" class="w-20 h-20 text-gray-300 mb-6" />
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">
+            {{ leafCategory }} 카테고리에 강의가 없습니다
+          </h2>
+          <p class="text-gray-500 mb-8">
+            다른 카테고리를 확인해보세요
+          </p>
+          <button
+              @click="router.push('/courses')"
+              class="action-button button-primary"
+          >
+            <BookOpen class="w-5 h-5 mr-2" />
+            전체 강의 보기
+          </button>
+        </div>
       </div>
     </div>
 
@@ -242,7 +281,9 @@ import {
   Wrench,
   Hammer,
   HardHat,
-  FlaskConical
+  FlaskConical,
+  Globe,
+  QrCode
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -380,7 +421,14 @@ const getCategoryIcon = () => {
 
 // 카테고리 스타일
 const getCategoryStyle = (leafCategory) => {
-  return CategoryService.getCategoryStyle(leafCategory)
+  const mainCategory = CategoryService.getMainCategoryForItem(leafCategory)
+  const styleMap = {
+    기계: 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/20',
+    공구: 'bg-gradient-to-br from-green-500 to-green-600 text-white shadow-green-500/20',
+    장비: 'bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-orange-500/20',
+    약품: 'bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-purple-500/20'
+  }
+  return styleMap[mainCategory] || 'bg-gradient-to-br from-gray-500 to-gray-600 text-white'
 }
 
 // 난이도 텍스트
@@ -426,6 +474,12 @@ const goToCourseDetail = (courseId) => {
   router.push(`/course/${courseId}`)
 }
 
+// 이미지 로드 에러 처리
+const handleImageError = (event) => {
+  event.target.style.display = 'none'
+  event.target.parentElement.querySelector('.thumbnail-placeholder').style.display = 'flex'
+}
+
 // 마운트
 onMounted(async () => {
   isLoading.value = true
@@ -447,11 +501,452 @@ watch(() => props.leafCategory, async () => {
 </script>
 
 <style scoped>
-/* 라인 클램프 */
-.line-clamp-2 {
+/* 헤더 섹션 */
+.header-section {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.header-gradient {
+  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+}
+
+.back-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: #6b7280;
+}
+
+.back-button:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.category-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.25);
+}
+
+/* 카테고리 정보 카드 */
+.category-info-card {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 32px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.category-info-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.category-icon-box {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+}
+
+.stat-item svg {
+  color: #9ca3af;
+}
+
+/* 정렬 섹션 */
+.sort-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.sort-select {
+  padding: 8px 36px 8px 16px;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L2 5h8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  appearance: none;
+}
+
+.sort-select:hover {
+  border-color: #d1d5db;
+  background-color: #f9fafb;
+}
+
+.sort-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* 로딩 상태 */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 강의 목록 */
+.course-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 강의 카드 */
+.course-card {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.course-card:hover {
+  border-color: #667eea;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.course-card.course-enrolled {
+  background: linear-gradient(to right, #eff6ff 0%, white 100%);
+  border-left: 4px solid #3b82f6;
+}
+
+.course-card.course-completed {
+  background: linear-gradient(to right, #f0fdf4 0%, white 100%);
+  border-left: 4px solid #10b981;
+}
+
+.course-card-body {
+  padding: 24px;
+}
+
+/* 썸네일 */
+.course-thumbnail {
+  flex-shrink: 0;
+  width: 200px;
+}
+
+.thumbnail-wrapper {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+
+.thumbnail-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.course-card:hover .thumbnail-image {
+  transform: scale(1.05);
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+}
+
+.status-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.progress-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: #1f2937;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+/* 상태 배지 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.badge-completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-enrolled {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-qr {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
+.badge-language {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* 강의 제목 */
+.course-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  line-height: 1.4;
+}
+
+.course-title:hover {
+  color: #667eea;
+}
+
+/* 강의 설명 */
+.course-description {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.6;
+  margin-bottom: 16px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* 메타 정보 */
+.course-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.meta-item svg {
+  color: #9ca3af;
+}
+
+/* 액션 버튼 */
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.25);
+}
+
+.button-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+}
+
+.button-selected {
+  background: #d1fae5;
+  color: #065f46;
+  border: 2px solid #10b981;
+}
+
+.button-continue {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.button-certificate {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* 빈 상태 */
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 500px;
+}
+
+.empty-state-content {
+  text-align: center;
+  max-width: 400px;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .course-card-body {
+    padding: 16px;
+  }
+
+  .course-thumbnail {
+    width: 140px;
+  }
+
+  .thumbnail-wrapper {
+    height: 90px;
+  }
+
+  .course-title {
+    font-size: 16px;
+  }
+
+  .course-description {
+    font-size: 13px;
+  }
+
+  .action-button {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  .meta-item {
+    font-size: 12px;
+  }
+
+  .status-badge {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .course-card-body {
+    padding: 12px;
+  }
+
+  .flex.items-start.space-x-5 {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .course-thumbnail {
+    width: 100%;
+  }
+
+  .thumbnail-wrapper {
+    height: 160px;
+  }
+
+  .ml-6.flex-shrink-0 {
+    margin-left: 0;
+    margin-top: 12px;
+    width: 100%;
+  }
+
+  .action-button {
+    width: 100%;
+  }
+}
+
+/* 애니메이션 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.course-card {
+  animation: fadeIn 0.4s ease-out;
+}
+
+.course-card:nth-child(1) { animation-delay: 0.05s; }
+.course-card:nth-child(2) { animation-delay: 0.1s; }
+.course-card:nth-child(3) { animation-delay: 0.15s; }
+.course-card:nth-child(4) { animation-delay: 0.2s; }
+.course-card:nth-child(5) { animation-delay: 0.25s; }
 </style>
