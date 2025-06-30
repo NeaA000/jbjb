@@ -154,6 +154,7 @@ import { useCourseStore } from '@/stores/course'
 import { useCertificateStore } from '@/stores/certificate'
 import CourseService from '@/services/courseService'
 import EnrollmentService from '@/services/enrollmentService'
+import ProgressService from '@/services/progressService'
 import LoadingSpinner from '@/common/LoadingSpinner.vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -165,9 +166,6 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-vue-next'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/services/firebase'
-import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
 const router = useRouter()
 const route = useRoute()
@@ -187,7 +185,7 @@ const props = defineProps({
 const isLoading = ref(true)
 const course = ref(null)
 const courseId = computed(() => props.id)
-const userId = computed(() => authStore.user?.uid || 'guest')
+const userId = computed(() => authStore.user?.uid || (authStore.isGuest ? 'guest' : null))
 const currentLanguage = ref('ko')
 const videoUrl = ref('')
 const progress = ref(0)
@@ -347,49 +345,40 @@ const changeLanguage = async (lang) => {
   })
 }
 
-// 진행률 로드
+// 진행률 로드 (ProgressService 사용)
 const loadProgress = async () => {
   try {
-    if (authStore.user) {
-      // Firebase에서 진행률 정보 로드
-      const progressId = `${authStore.user.uid}_${courseId.value}`
-      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
-      const progressSnap = await getDoc(progressRef)
+    if (!userId.value) return
 
-      if (progressSnap.exists()) {
-        const data = progressSnap.data()
-        progress.value = data.progress || 0
-        lastWatchedTime.value = data.lastWatchedTime || 0
+    // ProgressService를 사용하여 진행률 로드
+    const progressData = await ProgressService.loadProgress(userId.value, courseId.value)
 
-        // 비디오 시간 복원
-        if (videoPlayer.value && lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5) {
-          videoPlayer.value.currentTime = lastWatchedTime.value
-          console.log(`⏰ 마지막 시청 위치로 이동: ${lastWatchedTime.value}초`)
-        }
-      }
-    } else {
-      // 게스트는 로컬스토리지 사용
-      const savedProgress = localStorage.getItem(`progress_${courseId.value}`)
-      const savedTime = localStorage.getItem(`lastTime_${courseId.value}`)
+    progress.value = progressData.progress || 0
+    lastWatchedTime.value = progressData.lastWatchedTime || 0
 
-      if (savedProgress) {
-        progress.value = parseInt(savedProgress) || 0
-      }
-      if (savedTime && videoPlayer.value) {
-        const time = parseFloat(savedTime)
-        if (time > 0 && time < duration.value - 5) {
-          videoPlayer.value.currentTime = time
-        }
-      }
+    console.log('📊 진행률 로드됨:', {
+      progress: progress.value,
+      lastWatchedTime: lastWatchedTime.value,
+      duration: duration.value
+    })
+
+    // 비디오 시간 복원 - 여러 조건 체크
+    if (videoPlayer.value &&
+        lastWatchedTime.value > 0 &&
+        lastWatchedTime.value < duration.value - 5 &&
+        videoPlayer.value.readyState >= 2) { // HAVE_CURRENT_DATA 이상
+
+      videoPlayer.value.currentTime = lastWatchedTime.value
+      console.log(`⏰ 마지막 시청 위치로 이동: ${lastWatchedTime.value}초`)
     }
   } catch (error) {
     console.error('진행률 로드 실패:', error)
   }
 }
 
-// 진행률 저장 (디바운싱 적용) - 수정됨
+// 진행률 저장 (ProgressService 사용)
 const saveProgress = async (forceImmediate = false) => {
-  if (!course.value || !authStore.isAuthenticated) return
+  if (!course.value || !userId.value) return
 
   // 즉시 저장이 필요한 경우 타이머 클리어
   if (forceImmediate && progressSaveTimer) {
@@ -402,34 +391,18 @@ const saveProgress = async (forceImmediate = false) => {
 
   const doSave = async () => {
     try {
-      const newProgress = Math.round(progress.value)
-
-      if (authStore.user) {
-        // Firebase에 저장
-        const progressId = `${authStore.user.uid}_${courseId.value}`
-        const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
-
-        const progressData = {
-          userId: authStore.user.uid,
-          courseId: courseId.value,
-          progress: newProgress,
-          lastWatchedTime: currentTime.value,
-          updatedAt: serverTimestamp(),
-          completed: newProgress >= 100,
-          duration: duration.value,
-          language: currentLanguage.value
-        }
-
-        await setDoc(progressRef, progressData, { merge: true })
-        console.log(`💾 진행률 저장: ${newProgress}%, 시간: ${currentTime.value}초`)
-
-        // 진행률 스토어 업데이트
-        await courseStore.updateProgress(course.value.id, newProgress)
-      } else {
-        // 게스트는 로컬스토리지에 저장
-        localStorage.setItem(`progress_${courseId.value}`, newProgress.toString())
-        localStorage.setItem(`lastTime_${courseId.value}`, currentTime.value.toString())
+      const progressData = {
+        progress: Math.round(progress.value),
+        currentTime: currentTime.value,
+        duration: duration.value,
+        language: currentLanguage.value
       }
+
+      await ProgressService.saveProgress(userId.value, courseId.value, progressData)
+      console.log(`💾 진행률 저장 완료: ${progressData.progress}%`)
+
+      // 진행률 스토어 업데이트
+      await courseStore.updateProgress(course.value.id, progressData.progress)
     } catch (error) {
       console.error('진행률 저장 실패:', error)
     }
@@ -579,6 +552,17 @@ const onVideoLoaded = async (event) => {
 
   // 진도 로드
   await loadProgress()
+
+  // 비디오 시간 설정을 다시 시도 (loadProgress에서 설정이 안 될 수 있음)
+  if (lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5) {
+    // 약간의 지연 후 시간 설정
+    setTimeout(() => {
+      if (videoPlayer.value) {
+        videoPlayer.value.currentTime = lastWatchedTime.value
+        console.log(`⏰ 비디오 시간 재설정: ${lastWatchedTime.value}초`)
+      }
+    }, 100)
+  }
 }
 
 const onVideoPlay = () => {
@@ -645,12 +629,30 @@ const onVideoTimeUpdate = (event) => {
     // 디바운싱된 저장 호출
     debouncedSaveProgress()
   }
+
+  // 처음 몇 초 동안 시간 복원이 안 됐다면 재시도
+  if (currentTime.value < 5 && lastWatchedTime.value > 10 && !videoPlayer.value.seeking) {
+    console.log('⚠️ 시간 복원 재시도 필요:', {
+      currentTime: currentTime.value,
+      lastWatchedTime: lastWatchedTime.value
+    })
+    videoPlayer.value.currentTime = lastWatchedTime.value
+  }
 }
 
 const onVideoCanPlay = () => {
   videoLoading.value = false
   retryCount.value = 0
   console.log('✅ 비디오 재생 준비 완료')
+
+  // canplay 이벤트에서도 시간 복원 시도
+  if (lastWatchedTime.value > 0 && lastWatchedTime.value < duration.value - 5 && videoPlayer.value) {
+    // 현재 시간이 0이거나 매우 작을 때만 복원
+    if (videoPlayer.value.currentTime < 5) {
+      videoPlayer.value.currentTime = lastWatchedTime.value
+      console.log(`⏰ 재생 준비 완료 시 시간 복원: ${lastWatchedTime.value}초`)
+    }
+  }
 }
 
 const onVideoWaiting = () => {
@@ -733,6 +735,9 @@ onUnmounted(() => {
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
   }
+
+  // 캐시 정리 (선택사항)
+  // ProgressService.clearCache()
 })
 </script>
 
