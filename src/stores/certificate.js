@@ -56,8 +56,9 @@ export const useCertificateStore = defineStore('certificate', {
                 const result = await CertificateService.createCertificate(certificateData)
 
                 if (result.success) {
-                    // 목록에 추가
-                    this.userCertificates.push(result.data)
+                    // 수료증 생성 후 전체 목록을 다시 로드하여 동기화
+                    const userId = certificateData.userId
+                    await this.loadUserCertificates(userId)
 
                     return {
                         success: true,
@@ -86,11 +87,16 @@ export const useCertificateStore = defineStore('certificate', {
             this.isLoading = true
             this.error = null
 
+            // 캐시 무시하고 항상 Firebase에서 새로 로드
+            this.userCertificates = []
+
             try {
                 const result = await CertificateService.getUserCertificates(userId)
 
                 if (result.success) {
                     this.userCertificates = result.data
+                    console.log(`✅ ${result.data.length}개의 수료증을 로드했습니다.`)
+
                     return {
                         success: true,
                         data: result.data
@@ -124,6 +130,13 @@ export const useCertificateStore = defineStore('certificate', {
 
                 if (result.success) {
                     this.currentCertificate = result.data
+
+                    // 현재 수료증이 목록에 없으면 목록도 새로고침
+                    const existsInList = this.userCertificates.some(cert => cert.id === certificateId)
+                    if (!existsInList && result.data.userId) {
+                        await this.loadUserCertificates(result.data.userId)
+                    }
+
                     return {
                         success: true,
                         certificate: result.data
@@ -234,7 +247,7 @@ export const useCertificateStore = defineStore('certificate', {
         strategies: [
             {
                 key: 'certificate-store',
-                storage: sessionStorage,
+                storage: localStorage,  // sessionStorage를 localStorage로 변경
                 paths: ['userCertificates']
             }
         ]

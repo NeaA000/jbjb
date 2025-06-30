@@ -116,7 +116,7 @@
         </div>
         <div v-if="hasProgress" class="meta-item">
           <el-icon><Trophy /></el-icon>
-          <span>{{ Math.round(courseProgress) }}% 완료</span>
+          <span>{{ Math.round(currentProgress) }}% 완료</span>
         </div>
         <div v-else-if="course.difficulty" class="meta-item">
           <el-icon><Promotion /></el-icon>
@@ -128,7 +128,7 @@
       <div v-if="hasProgress" class="progress-bar">
         <div
             class="progress-fill"
-            :style="{ width: `${courseProgress}%` }"
+            :style="{ width: `${currentProgress}%` }"
         ></div>
       </div>
 
@@ -239,7 +239,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import ProgressService from '@/services/progressService'
 import {
   VideoPlay,
   Timer,
@@ -295,8 +297,11 @@ const emit = defineEmits([
 ])
 
 // State
+const authStore = useAuthStore()
 const enrolling = ref(false)
 const thumbnailLoading = ref(false)
+const currentProgress = ref(0)
+const lastWatchedTime = ref(0)
 
 // Computed
 const isEnrolled = computed(() => {
@@ -304,17 +309,11 @@ const isEnrolled = computed(() => {
 })
 
 const hasProgress = computed(() => {
-  const progress = props.enrollment?.progress || props.course.progress
-  return progress !== undefined && progress !== null && progress > 0
-})
-
-const courseProgress = computed(() => {
-  const progress = props.enrollment?.progress || props.course.progress || 0
-  return typeof progress === 'number' ? Math.min(Math.max(progress, 0), 100) : 0
+  return currentProgress.value > 0
 })
 
 const isCompleted = computed(() => {
-  return courseProgress.value >= 100 || props.enrollment?.status === 'completed'
+  return currentProgress.value >= 100 || props.enrollment?.status === 'completed'
 })
 
 const isNewCourse = computed(() => {
@@ -370,6 +369,20 @@ const getCategoryColor = (category) => {
   return colors['기타']
 }
 
+// 진행률 로드
+const loadProgress = async () => {
+  const userId = authStore.user?.uid || (authStore.isGuest ? 'guest' : null)
+  if (!userId || !props.course.id) return
+
+  try {
+    const progressData = await ProgressService.loadProgress(userId, props.course.id)
+    currentProgress.value = progressData.progress || 0
+    lastWatchedTime.value = progressData.lastWatchedTime || 0
+  } catch (error) {
+    console.error('진행률 로드 오류:', error)
+  }
+}
+
 // Event Handlers
 const handleCardClick = () => {
   emit('click', props.course)
@@ -423,6 +436,26 @@ const onImageError = (event) => {
   }
   console.warn('강의 썸네일 로드 실패:', props.course.id)
 }
+
+// Lifecycle
+onMounted(() => {
+  // enrollment에 진행률 정보가 있으면 사용
+  if (props.enrollment?.progress !== undefined) {
+    currentProgress.value = props.enrollment.progress
+  }
+
+  // 로그인 사용자면 진행률 로드
+  if ((authStore.user || authStore.isGuest) && (isEnrolled.value || props.course.isEnrolled)) {
+    loadProgress()
+  }
+})
+
+// 강의가 변경되면 진행률 다시 로드
+watch(() => props.course.id, () => {
+  if ((authStore.user || authStore.isGuest) && (isEnrolled.value || props.course.isEnrolled)) {
+    loadProgress()
+  }
+})
 </script>
 
 <style scoped>

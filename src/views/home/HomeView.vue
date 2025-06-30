@@ -183,6 +183,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import ProgressService from '@/services/progressService'
 import { ElMessage } from 'element-plus'
 import {
   User,
@@ -232,10 +233,10 @@ const handleLogout = async () => {
   }
 }
 
-// 통계 데이터 로드
+// 통계 데이터 로드 (기존 ProgressService 사용)
 const loadStats = async () => {
   try {
-    const userId = authStore.userId
+    const userId = authStore.userId || (authStore.isGuest ? 'guest' : null)
     if (!userId) return
 
     // enrollments 컬렉션에서 사용자 수강 정보 가져오기
@@ -245,31 +246,20 @@ const loadStats = async () => {
     )
     const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
 
-    let inProgress = 0
-    let completed = 0
     let totalMinutes = 0
+    const courseIds = []
 
-    // 진도 정보 병렬 로드
-    const progressPromises = []
     enrollmentsSnapshot.forEach(doc => {
       const enrollment = doc.data()
-      progressPromises.push(loadProgressForEnrollment(userId, enrollment.courseId))
-    })
-
-    const progressResults = await Promise.all(progressPromises)
-
-    // 통계 계산
-    progressResults.forEach((progress, index) => {
-      if (progress >= 100) {
-        completed++
-      } else if (progress > 0) {
-        inProgress++
-      }
-
-      // 학습 시간 추가 (enrollments 문서에서)
-      const enrollment = enrollmentsSnapshot.docs[index].data()
+      courseIds.push(enrollment.courseId)
       totalMinutes += enrollment.studyTime || 0
     })
+
+    // 모든 진행률 정보 가져오기
+    const progressMap = await ProgressService.loadAllUserProgress(userId)
+
+    // 통계 계산
+    const progressStats = ProgressService.calculateProgressStats(progressMap)
 
     // certificates 컬렉션에서 수료증 개수 가져오기
     const certificatesQuery = query(
@@ -280,38 +270,22 @@ const loadStats = async () => {
     const certificatesCount = certificatesSnapshot.size
 
     stats.value = {
-      completed,
-      inProgress,
+      completed: progressStats.completedCourses,
+      inProgress: progressStats.inProgressCourses,
       certificates: certificatesCount,
       totalHours: Math.round(totalMinutes / 60)
     }
+
   } catch (error) {
     console.error('통계 로드 오류:', error)
     // 오류 시 기본값 유지
   }
 }
 
-// 개별 강의의 진도 정보 로드
-const loadProgressForEnrollment = async (userId, courseId) => {
-  try {
-    const progressId = `${userId}_${courseId}`
-    const progressDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId))
-
-    if (progressDoc.exists()) {
-      const data = progressDoc.data()
-      return data.progress || data.percentage || 0
-    }
-    return 0
-  } catch (error) {
-    console.error('진도 로드 오류:', error)
-    return 0
-  }
-}
-
-// 최근 학습 강의 로드
+// 최근 학습 강의 로드 (기존 ProgressService 사용)
 const loadRecentCourses = async () => {
   try {
-    const userId = authStore.userId
+    const userId = authStore.userId || (authStore.isGuest ? 'guest' : null)
     if (!userId) return
 
     // 최근 접근한 enrollments 가져오기
@@ -324,22 +298,30 @@ const loadRecentCourses = async () => {
 
     const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
     const courses = []
+    const courseIds = []
 
-    // 각 enrollment에 대한 강의 정보와 진도 정보 병렬 로드
-    const coursePromises = []
+    // 강의 ID 수집
     enrollmentsSnapshot.forEach(doc => {
       const enrollment = doc.data()
-      coursePromises.push(loadCourseWithProgress(enrollment.courseId, userId))
+      courseIds.push(enrollment.courseId)
     })
 
-    const courseResults = await Promise.all(coursePromises)
+    // 배치로 모든 진행률 가져오기
+    const progressMap = await ProgressService.loadBatchProgress(userId, courseIds)
 
-    // 유효한 강의만 필터링
-    courseResults.forEach(course => {
+    // 각 enrollment에 대한 강의 정보 가져오기
+    for (const enrollmentDoc of enrollmentsSnapshot.docs) {
+      const enrollment = enrollmentDoc.data()
+      const course = await loadCourseInfo(enrollment.courseId)
+
       if (course) {
-        courses.push(course)
+        const progressData = progressMap.get(enrollment.courseId)
+        courses.push({
+          ...course,
+          progress: progressData?.progress || 0
+        })
       }
-    })
+    }
 
     recentCourses.value = courses
   } catch (error) {
@@ -348,17 +330,14 @@ const loadRecentCourses = async () => {
   }
 }
 
-// 강의 정보와 진도 정보를 함께 로드
-const loadCourseWithProgress = async (courseId, userId) => {
+// 강의 정보 로드
+const loadCourseInfo = async (courseId) => {
   try {
     // 강의 정보 가져오기
     const courseDoc = await getDoc(doc(db, FIREBASE_COLLECTIONS.UPLOADS, courseId))
     if (!courseDoc.exists()) return null
 
     const courseData = courseDoc.data()
-
-    // 진도 정보 가져오기
-    const progress = await loadProgressForEnrollment(userId, courseId)
 
     // 카테고리 경로 생성
     const categoryPath = [
@@ -371,7 +350,6 @@ const loadCourseWithProgress = async (courseId, userId) => {
       id: courseId,
       title: courseData.group_name || courseData.title || '제목 없음',
       category: categoryPath || '미분류',
-      progress: progress,
       thumbnail: courseData.thumbnail_url || null,
       duration: courseData.duration || '30분'
     }

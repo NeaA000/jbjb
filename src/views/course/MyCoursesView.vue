@@ -96,7 +96,7 @@
               <div v-if="enrollment.progress !== undefined" class="progress-section">
                 <div class="progress-header">
                   <span>진도율</span>
-                  <span class="progress-value">{{ enrollment.progress }}%</span>
+                  <span class="progress-value">{{ Math.round(enrollment.progress) }}%</span>
                 </div>
                 <div class="progress-bar">
                   <div class="progress-fill" :style="`width: ${enrollment.progress}%`"></div>
@@ -122,7 +122,7 @@
               </div>
 
               <!-- 완료 정보 -->
-              <div v-if="enrollment.status === 'completed' || enrollment.progress === 100" class="completion-info">
+              <div v-if="enrollment.status === 'completed' || enrollment.progress >= 100" class="completion-info">
                 <CheckCircle :size="16" />
                 <span>{{ formatDate(enrollment.completedAt) }} 수료</span>
               </div>
@@ -159,7 +159,7 @@
                 수료증 보기
               </button>
               <button
-                  v-if="enrollment.progress === 100"
+                  v-if="enrollment.progress >= 100"
                   @click="reviewCourse(enrollment.courseId)"
                   class="btn-action btn-secondary"
               >
@@ -181,6 +181,7 @@ import { useCourseStore } from '@/stores/course'
 import { useAuthStore } from '@/stores/auth'
 import CategoryService from '@/services/categoryService'
 import CourseService from '@/services/courseService'
+import ProgressService from '@/services/progressService'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft,
@@ -197,7 +198,7 @@ import {
   Loader2,
   Globe
 } from 'lucide-vue-next'
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '@/services/firebase'
 import { FIREBASE_COLLECTIONS } from '@/utils/constants'
 
@@ -242,7 +243,7 @@ const inProgressCourses = computed(() => {
 // 완료한 강의
 const completedCourses = computed(() => {
   return courseStore.enrollments.filter(enrollment =>
-      enrollment.status === 'completed' || enrollment.progress === 100
+      enrollment.status === 'completed' || enrollment.progress >= 100
   )
 })
 
@@ -392,31 +393,14 @@ const refreshCourses = async () => {
   }
 }
 
-// 진행률 정보 가져오기
-const loadProgressForEnrollment = async (userId, courseId) => {
-  try {
-    const progressId = `${userId}_${courseId}`
-    const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
-    const progressSnap = await getDoc(progressRef)
-
-    if (progressSnap.exists()) {
-      const data = progressSnap.data()
-      return data.progress || 0
-    }
-    return 0
-  } catch (error) {
-    console.error('진도 로드 오류:', error)
-    return 0
-  }
-}
-
-// 내 강의 로드 (수정됨 - 진행률 포함)
+// 내 강의 로드 (기존 ProgressService 사용)
 const loadMyCourses = async () => {
   try {
     isLoading.value = true
 
     // 사용자 확인
-    if (!authStore.user) {
+    const userId = authStore.user?.uid || (authStore.isGuest ? 'guest' : null)
+    if (!userId) {
       console.warn('로그인이 필요합니다')
       router.push('/auth/login')
       return
@@ -424,29 +408,40 @@ const loadMyCourses = async () => {
 
     // 1. enrollments 컬렉션에서 사용자의 수강 정보 가져오기
     const enrollmentsRef = collection(db, FIREBASE_COLLECTIONS.ENROLLMENTS)
-    const q = query(enrollmentsRef, where('userId', '==', authStore.user.uid))
+    const q = query(enrollmentsRef, where('userId', '==', userId))
     const enrollmentSnapshot = await getDocs(q)
 
     const enrollmentsWithCourses = []
+    const courseIds = []
 
-    // 2. 각 enrollment에 대해 강의 정보와 진행률 정보 가져오기
+    // 2. 각 enrollment에 대해 강의 정보 가져오기
     for (const enrollmentDoc of enrollmentSnapshot.docs) {
       const enrollmentData = enrollmentDoc.data()
+      courseIds.push(enrollmentData.courseId)
 
       // 강의 정보 가져오기
       const course = await CourseService.getCourseById(enrollmentData.courseId)
-
-      // 진행률 정보 가져오기
-      const progress = await loadProgressForEnrollment(authStore.user.uid, enrollmentData.courseId)
 
       enrollmentsWithCourses.push({
         id: enrollmentDoc.id,
         ...enrollmentData,
         course: course,
-        progress: progress,
-        status: progress >= 100 ? 'completed' : enrollmentData.status || 'enrolled'
+        progress: 0 // 초기값
       })
     }
+
+    // 3. 배치로 모든 진행률 가져오기
+    const progressMap = await ProgressService.loadBatchProgress(userId, courseIds)
+
+    // 4. 진행률 정보 업데이트
+    enrollmentsWithCourses.forEach(enrollment => {
+      const progressData = progressMap.get(enrollment.courseId)
+      if (progressData) {
+        enrollment.progress = progressData.progress || 0
+        enrollment.lastWatchedTime = progressData.lastWatchedTime || 0
+        enrollment.status = progressData.completed ? 'completed' : enrollment.status || 'enrolled'
+      }
+    })
 
     // store 업데이트
     courseStore.enrollments = enrollmentsWithCourses
