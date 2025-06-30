@@ -42,7 +42,7 @@ export const useCourseStore = defineStore('course', () => {
                 const cacheAge = Date.now() - (lastLoadTime.value || 0)
                 if (cacheAge < 5 * 60 * 1000) { // 5분
                     console.log('✅ 캐시된 강의 사용')
-                    return courses.value
+                    return result.courses || []
                 }
             }
 
@@ -51,19 +51,19 @@ export const useCourseStore = defineStore('course', () => {
             error.value = null
 
             // 캐시에서 먼저 로드 시도
-            const cachedCourses = CourseService.getFromCache()
+            const cachedCourses = CourseService.getCachedCourses()
             if (cachedCourses && cachedCourses.length > 0) {
                 courses.value = cachedCourses
                 console.log(`📦 캐시에서 ${cachedCourses.length}개 강의 로드`)
             }
 
             // Firebase에서 전체 강의 로드
-            const allCourses = await CourseService.getAllCourses()
+            const result = await CourseService.getCoursesFromFirestore()
 
-            if (allCourses.length > 0) {
-                courses.value = allCourses
+            if (result.courses && result.courses.length > 0) {
+                courses.value = result.courses
                 lastLoadTime.value = Date.now()
-                console.log(`✅ Firebase에서 ${allCourses.length}개 강의 로드 완료`)
+                console.log(`✅ Firebase에서 ${result.courses.length}개 강의 로드 완료`)
             }
 
             return courses.value
@@ -406,8 +406,7 @@ export const useCourseStore = defineStore('course', () => {
         return {
             memoryCourses: courses.value.length,
             lastLoadTime: lastLoadTime.value ? new Date(lastLoadTime.value).toLocaleString() : null,
-            hasMore: hasMore.value,
-            ...CourseService.getCacheStatus()
+            hasMore: hasMore.value
         }
     }
 

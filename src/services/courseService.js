@@ -1,4 +1,4 @@
-// web/src/services/courseService.js - 성능 최적화 버전
+// web/src/services/courseService.js - 성능 최적화 및 CORS 대응 버전
 import {
     collection,
     doc,
@@ -83,8 +83,13 @@ class CourseService {
         const hasVideo = !!videoUrl && videoUrl.trim() !== ''
 
         // Railway 프록시 URL 생성 (비디오 URL이 없을 때 폴백)
-        const baseUrl = import.meta.env.VITE_API_URL || ''
-        const fallbackVideoUrl = hasVideo ? videoUrl : `${baseUrl}/watch/${uploadDoc.id}`
+        const baseUrl = this._getBaseUrl()
+        const fallbackVideoUrl = hasVideo ? this._convertToProxyUrl(videoUrl) : `${baseUrl}/watch/${uploadDoc.id}`
+
+        // 언어 정보 처리 - 안전하게 처리
+        const supportedLanguagesCount = data.supported_languages_count || 1
+        const supportedVideoLanguages = data.supported_video_languages || ['ko']
+        const availableLanguages = supportedVideoLanguages.length > 0 ? supportedVideoLanguages : ['ko']
 
         return {
             id: uploadDoc.id,
@@ -102,8 +107,8 @@ class CourseService {
             // 미디어 정보 (hasVideo 필드 추가)
             videoUrl: fallbackVideoUrl,
             hasVideo: hasVideo, // hasVideo 필드 명시적 추가
-            thumbnailUrl: data.thumbnail_url || data.thumbnailUrl || '/default-thumbnail.jpg',
-            qrUrl: data.qr_url || data.qrUrl || '',
+            thumbnailUrl: this._convertToProxyUrl(data.thumbnail_url || data.thumbnailUrl || '/default-thumbnail.jpg'),
+            qrUrl: this._convertToProxyUrl(data.qr_url || data.qrUrl || ''),
 
             // 학습 정보
             duration: data.duration_string || data.duration || '30분',
@@ -121,10 +126,10 @@ class CourseService {
             rating: data.rating || 0,
             reviewCount: data.review_count || data.reviewCount || 0,
 
-            // 언어 정보
+            // 언어 정보 - 안전하게 처리
             languageVideos: data.language_videos || {},
-            hasMultipleLanguages: Object.keys(data.language_videos || {}).length > 1,
-            availableLanguages: data.languages || Object.keys(data.language_videos || {}) || ['ko'],
+            hasMultipleLanguages: availableLanguages.length > 1,
+            availableLanguages: availableLanguages,
             hasLanguageVideos: false, // 나중에 로드
 
             // Railway 프록시 정보
@@ -137,6 +142,63 @@ class CourseService {
             // 원본 데이터 참조 (디버깅용)
             _originalData: data
         }
+    }
+
+    /**
+     * 기본 URL 가져오기 (개발/프로덕션 환경 구분)
+     */
+    static _getBaseUrl() {
+        // 개발 환경에서는 Vite 프록시 사용
+        if (import.meta.env.DEV) {
+            return ''  // 프록시를 통해 상대 경로 사용
+        }
+        // 프로덕션 환경
+        return import.meta.env.VITE_RAILWAY_URL || import.meta.env.VITE_API_URL || ''
+    }
+
+    /**
+     * Railway 프록시 URL로 변환 (CORS 대응)
+     */
+    static _convertToProxyUrl(url) {
+        if (!url) return ''
+
+        // 이미 절대 경로인 경우
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            // 개발 환경에서는 프록시를 통해 접근
+            if (import.meta.env.DEV) {
+                // Railway URL을 로컬 프록시 경로로 변환
+                const railwayUrl = import.meta.env.VITE_RAILWAY_URL || 'https://videouploader-production.up.railway.app'
+                if (url.startsWith(railwayUrl)) {
+                    return url.replace(railwayUrl, '')
+                }
+            }
+            return url
+        }
+
+        // 상대 경로인 경우
+        const baseUrl = this._getBaseUrl()
+        return `${baseUrl}${url}`
+    }
+
+    /**
+     * Railway 프록시 URL을 절대 경로로 변환
+     */
+    static _convertToAbsoluteUrl(url) {
+        if (!url) return ''
+
+        // 이미 절대 경로인 경우 그대로 반환
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            return url
+        }
+
+        // 개발 환경에서는 상대 경로 유지
+        if (import.meta.env.DEV) {
+            return url
+        }
+
+        // 프로덕션 환경에서는 Railway URL 추가
+        const apiUrl = import.meta.env.VITE_RAILWAY_URL || import.meta.env.VITE_API_URL || ''
+        return `${apiUrl}${url}`
     }
 
     /**
@@ -345,12 +407,18 @@ class CourseService {
 
             snapshot.forEach((doc) => {
                 const data = doc.data()
-                const language = data.language || doc.id
+                const language = data.language_code || doc.id
+                const videoUrl = data.video_url || data.railway_proxy_url || ''
+
                 languageVideos[language] = {
                     language,
-                    videoUrl: data.video_url || data.videoUrl || '',
-                    hasVideo: !!data.video_url || !!data.videoUrl,
-                    uploadedAt: data.uploadedAt || new Date()
+                    languageName: data.language_name || language,
+                    videoUrl: this._convertToProxyUrl(videoUrl),
+                    hasVideo: !!videoUrl,
+                    fileSize: data.file_size || 0,
+                    duration: data.duration_string || '',
+                    uploadedAt: data.created_at || new Date(),
+                    isOriginal: data.is_original || (language === 'ko')
                 }
             })
 
@@ -359,6 +427,7 @@ class CourseService {
             course.availableLanguages = Object.keys(languageVideos).length > 0 ?
                 Object.keys(languageVideos) : ['ko']
             course.hasMultipleLanguages = course.availableLanguages.length > 1
+            course.hasLanguageVideos = true
 
             // 메모리 캐시 업데이트
             const cacheKey = `course_${courseId}`
@@ -428,7 +497,7 @@ class CourseService {
             // videoUrl이 이미 완전한 URL인 경우
             if (videoUrl && (videoUrl.startsWith('http://') || videoUrl.startsWith('https://') || videoUrl.startsWith('/'))) {
                 return {
-                    videoUrl: this._convertToAbsoluteUrl(videoUrl),
+                    videoUrl: this._convertToProxyUrl(videoUrl),
                     metadata: {
                         language,
                         source: 'direct'
@@ -460,6 +529,13 @@ class CourseService {
         try {
             console.log(`🔍 언어별 비디오 URL 조회: ${courseId} (${language})`)
 
+            // courseId 유효성 검사
+            if (!courseId || typeof courseId !== 'string') {
+                console.error('유효하지 않은 courseId:', courseId)
+                const baseUrl = this._getBaseUrl()
+                return `${baseUrl}/watch/${courseId}?lang=${language}`
+            }
+
             // 1. Firebase에서 언어별 비디오 정보 직접 조회
             const languageVideoRef = doc(
                 db,
@@ -477,7 +553,7 @@ class CourseService {
 
                 if (videoUrl) {
                     console.log(`✅ ${language} 비디오 URL 찾음: ${videoUrl}`)
-                    return this._convertToAbsoluteUrl(videoUrl)
+                    return this._convertToProxyUrl(videoUrl)
                 }
             }
 
@@ -501,38 +577,22 @@ class CourseService {
 
                     if (koVideoUrl) {
                         console.log(`✅ 한국어 비디오 URL로 폴백: ${koVideoUrl}`)
-                        return this._convertToAbsoluteUrl(koVideoUrl)
+                        return this._convertToProxyUrl(koVideoUrl)
                     }
                 }
             }
 
             // 3. 모든 방법이 실패하면 기본 watch URL 반환
             console.log(`⚠️ 비디오 URL을 찾을 수 없어 기본 URL 사용`)
-            const baseUrl = import.meta.env.VITE_API_URL || ''
+            const baseUrl = this._getBaseUrl()
             return `${baseUrl}/watch/${courseId}?lang=${language}`
 
         } catch (error) {
             console.error('언어별 비디오 URL 조회 오류:', error)
             // 오류 시 기본 URL 반환
-            const baseUrl = import.meta.env.VITE_API_URL || ''
+            const baseUrl = this._getBaseUrl()
             return `${baseUrl}/watch/${courseId}?lang=${language}`
         }
-    }
-
-    /**
-     * Railway 프록시 URL을 절대 경로로 변환
-     */
-    static _convertToAbsoluteUrl(url) {
-        if (!url) return ''
-
-        // 이미 절대 경로인 경우 그대로 반환
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-            return url
-        }
-
-        // 상대 경로인 경우 API URL을 앞에 추가
-        const apiUrl = import.meta.env.VITE_API_URL || ''
-        return `${apiUrl}${url}`
     }
 
     /**
@@ -546,6 +606,13 @@ class CourseService {
             if (!courseId || typeof courseId !== 'string') {
                 console.error('유효하지 않은 courseId:', courseId)
                 return { languages: ['ko'] }
+            }
+
+            // 메모리 캐시 확인
+            const cacheKey = `languages_${courseId}`
+            const cached = this.getFromMemoryCache(cacheKey)
+            if (cached) {
+                return cached
             }
 
             // language_videos 서브컬렉션의 모든 문서 조회
@@ -574,7 +641,11 @@ class CourseService {
             }
 
             console.log(`✅ 사용 가능한 언어: ${languages.join(', ')}`)
-            return { languages }
+
+            const result = { languages }
+            this.setMemoryCache(cacheKey, result)
+
+            return result
 
         } catch (error) {
             console.error('언어 목록 조회 오류:', error)
