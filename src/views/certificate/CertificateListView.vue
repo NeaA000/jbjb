@@ -113,16 +113,25 @@
         </div>
       </div>
     </div>
+
+    <!-- 숨겨진 수료증 생성기 (다운로드용) -->
+    <div v-if="showGenerator" class="certificate-generator">
+      <CertificateGenerator
+          :certificate-data="selectedCertificateData"
+          @download="onGeneratorDownload"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useCertificateStore } from '@/stores/certificate'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import CertificateGenerator from '@/components/certificate/CertificateGenerator.vue'
+import CertificateService from '@/services/certificateService'
 import {
   ArrowLeft,
   Award,
@@ -138,6 +147,7 @@ import {
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const certificateStore = useCertificateStore()
 const authStore = useAuthStore()
 
@@ -148,6 +158,12 @@ const selectedCertificate = ref(null)
 
 // 수료증 목록
 const certificates = computed(() => certificateStore.userCertificates)
+
+// 선택된 수료증의 데이터 (Generator용)
+const selectedCertificateData = computed(() => {
+  if (!selectedCertificate.value) return null
+  return CertificateService.prepareCertificateData(selectedCertificate.value)
+})
 
 // 올해 획득한 수료증 수
 const thisYearCount = computed(() => {
@@ -205,19 +221,39 @@ const downloadCertificate = async (certificate) => {
   selectedCertificate.value = certificate
   showGenerator.value = true
 
-  // Generator 컴포넌트가 마운트되면 자동으로 다운로드
+  // Generator 컴포넌트가 마운트될 때까지 대기
   setTimeout(() => {
-    const generator = document.querySelector('.certificate-generator')
+    const generator = document.querySelector('.certificate-generator .btn-download')
     if (generator) {
-      generator.querySelector('.btn-download').click()
+      generator.click()
     }
-    showGenerator.value = false
-  }, 1000)
+  }, 500)
 }
 
-// 초기화
-onMounted(() => {
-  loadCertificates()
+// Generator 다운로드 완료 핸들러
+const onGeneratorDownload = (result) => {
+  if (result.success) {
+    ElMessage.success('수료증이 다운로드되었습니다')
+  } else {
+    ElMessage.error('다운로드 중 오류가 발생했습니다')
+  }
+  showGenerator.value = false
+  selectedCertificate.value = null
+}
+
+// 초기화 - URL 파라미터 처리 추가
+onMounted(async () => {
+  await loadCertificates()
+
+  // URL 파라미터로 courseId가 있으면 해당 수료증으로 이동
+  const courseId = route.query.courseId
+  if (courseId) {
+    const cert = certificateStore.getCertificateByCourse(courseId)
+    if (cert) {
+      // 해당 수료증이 있으면 상세 페이지로 이동
+      router.replace(`/certificates/${cert.id}`)
+    }
+  }
 })
 </script>
 
@@ -311,7 +347,7 @@ onMounted(() => {
 
 .certificate-preview {
   position: relative;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #667eea 0%, #5a67d8 100%);
   padding: 3rem;
   display: flex;
   align-items: center;
@@ -386,12 +422,12 @@ onMounted(() => {
 }
 
 .action-button.download {
-  background: #2563eb;
+  background: #667eea;
   color: white;
 }
 
 .action-button.download:hover {
-  background: #1d4ed8;
+  background: #5a67d8;
 }
 
 .action-button.view {
@@ -438,7 +474,7 @@ onMounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: #2563eb;
+  background: #667eea;
   color: white;
   border: none;
   border-radius: 8px;
@@ -448,9 +484,9 @@ onMounted(() => {
 }
 
 .cta-button:hover {
-  background: #1d4ed8;
+  background: #5a67d8;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 /* 통계 섹션 */
@@ -489,7 +525,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #2563eb;
+  color: #667eea;
 }
 
 .stat-content {

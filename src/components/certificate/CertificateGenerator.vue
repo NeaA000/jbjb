@@ -46,9 +46,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { Download, Printer, Share2, Loader2 } from 'lucide-vue-next'
-import CertificateTemplate from '../CertificateTemplate.vue'
+import CertificateTemplate from './CertificateTemplate.vue'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
@@ -82,7 +82,9 @@ const downloadPDF = async () => {
       scale: 2,
       useCORS: true,
       backgroundColor: '#ffffff',
-      logging: false
+      logging: false,
+      windowWidth: 794, // A4 width in pixels at 96 DPI
+      windowHeight: 1123 // A4 height in pixels at 96 DPI
     })
 
     // PDF 생성
@@ -95,7 +97,7 @@ const downloadPDF = async () => {
 
     // 이미지를 PDF에 추가
     const imgWidth = 210 // A4 width in mm
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    const imgHeight = 297 // A4 height in mm
 
     pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
 
@@ -120,25 +122,15 @@ const printCertificate = () => {
 
   // 새 창에서 수료증만 인쇄
   const printWindow = window.open('', '_blank')
-  const styles = Array.from(document.styleSheets)
-      .map(styleSheet => {
-        try {
-          return Array.from(styleSheet.cssRules)
-              .map(rule => rule.cssText)
-              .join('\n')
-        } catch (e) {
-          return ''
-        }
-      })
-      .join('\n')
+  const certificateHTML = templateElement.value.outerHTML
 
   printWindow.document.write(`
     <!DOCTYPE html>
     <html>
     <head>
       <title>수료증 인쇄</title>
+      <meta charset="utf-8">
       <style>
-        ${styles}
         @page {
           size: A4;
           margin: 0;
@@ -146,37 +138,31 @@ const printCertificate = () => {
         body {
           margin: 0;
           padding: 0;
+          font-family: 'Pretendard', -apple-system, sans-serif;
         }
-        .certificate-template {
-          width: 210mm !important;
-          height: 297mm !important;
-          margin: 0 !important;
-        }
+        ${document.querySelector('style').textContent}
       </style>
     </head>
     <body>
-      ${templateElement.value.outerHTML}
+      ${certificateHTML}
     </body>
     </html>
   `)
 
   printWindow.document.close()
 
-  // 이미지 로드 대기 후 인쇄
-  printWindow.onload = () => {
-    setTimeout(() => {
-      printWindow.print()
-      printWindow.close()
-    }, 500)
-  }
+  // 인쇄 다이얼로그 열기
+  setTimeout(() => {
+    printWindow.print()
+    printWindow.close()
+  }, 500)
 
-  emit('print')
+  emit('print', { success: true })
 }
 
 // 공유
 const shareCertificate = async () => {
   if (!navigator.share) {
-    // Web Share API를 지원하지 않는 경우
     alert('이 브라우저는 공유 기능을 지원하지 않습니다.')
     return
   }
@@ -237,25 +223,25 @@ const shareCertificate = async () => {
 }
 
 .btn-download {
-  background: #2563eb;
+  background: #667eea;
   color: white;
 }
 
 .btn-download:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: #5a67d8;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .btn-print {
-  background: #10b981;
+  background: #67C23A;
   color: white;
 }
 
 .btn-print:hover:not(:disabled) {
-  background: #059669;
+  background: #529b2e;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 12px rgba(103, 194, 58, 0.3);
 }
 
 .btn-share {

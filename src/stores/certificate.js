@@ -1,10 +1,12 @@
 // src/stores/certificate.js
 import { defineStore } from 'pinia'
 import CertificateService from '@/services/certificateService'
+import { ElMessage } from 'element-plus'
 
 export const useCertificateStore = defineStore('certificate', {
     state: () => ({
         certificates: [],
+        userCertificates: [],
         currentCertificate: null,
         isLoading: false,
         error: null
@@ -12,28 +14,34 @@ export const useCertificateStore = defineStore('certificate', {
 
     getters: {
         /**
-         * 사용자의 모든 수료증
+         * 발급된 수료증 개수
          */
-        userCertificates: (state) => state.certificates,
+        certificateCount: (state) => state.userCertificates.length,
 
         /**
-         * 특정 강의의 수료증 존재 여부
+         * 카테고리별 수료증 개수
          */
-        hasCertificate: (state) => (courseId) => {
-            return state.certificates.some(cert => cert.courseId === courseId)
+        certificatesByCategory: (state) => {
+            const categories = {}
+            state.userCertificates.forEach(cert => {
+                const category = cert.metadata?.courseCategory || '기타'
+                categories[category] = (categories[category] || 0) + 1
+            })
+            return categories
         },
 
         /**
-         * 특정 강의의 수료증 가져오기
+         * 최근 수료증 (5개)
          */
-        getCertificateByCourse: (state) => (courseId) => {
-            return state.certificates.find(cert => cert.courseId === courseId)
-        },
-
-        /**
-         * 수료증 개수
-         */
-        certificateCount: (state) => state.certificates.length
+        recentCertificates: (state) => {
+            return [...state.userCertificates]
+                .sort((a, b) => {
+                    const dateA = new Date(a.issuedDate?.toDate?.() || a.issuedDate)
+                    const dateB = new Date(b.issuedDate?.toDate?.() || b.issuedDate)
+                    return dateB - dateA
+                })
+                .slice(0, 5)
+        }
     },
 
     actions: {
@@ -48,8 +56,8 @@ export const useCertificateStore = defineStore('certificate', {
                 const result = await CertificateService.createCertificate(certificateData)
 
                 if (result.success) {
-                    // 수료증 목록에 추가
-                    this.certificates.push(result.data)
+                    // 목록에 추가
+                    this.userCertificates.push(result.data)
 
                     return {
                         success: true,
@@ -59,8 +67,9 @@ export const useCertificateStore = defineStore('certificate', {
                     throw new Error(result.error || '수료증 생성 실패')
                 }
             } catch (error) {
-                console.error('수료증 생성 오류:', error)
+                console.error('수료증 생성 실패:', error)
                 this.error = error.message
+
                 return {
                     success: false,
                     error: error.message
@@ -71,7 +80,7 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         /**
-         * 사용자의 모든 수료증 로드
+         * 사용자의 수료증 목록 로드
          */
         async loadUserCertificates(userId) {
             this.isLoading = true
@@ -81,13 +90,23 @@ export const useCertificateStore = defineStore('certificate', {
                 const result = await CertificateService.getUserCertificates(userId)
 
                 if (result.success) {
-                    this.certificates = result.data
+                    this.userCertificates = result.data
+                    return {
+                        success: true,
+                        data: result.data
+                    }
                 } else {
                     throw new Error(result.error || '수료증 목록 로드 실패')
                 }
             } catch (error) {
-                console.error('수료증 목록 로드 오류:', error)
+                console.error('수료증 목록 로드 실패:', error)
                 this.error = error.message
+                this.userCertificates = []
+
+                return {
+                    success: false,
+                    error: error.message
+                }
             } finally {
                 this.isLoading = false
             }
@@ -110,11 +129,13 @@ export const useCertificateStore = defineStore('certificate', {
                         certificate: result.data
                     }
                 } else {
-                    throw new Error(result.error || '수료증을 찾을 수 없습니다')
+                    throw new Error(result.error || '수료증 로드 실패')
                 }
             } catch (error) {
-                console.error('수료증 로드 오류:', error)
+                console.error('수료증 로드 실패:', error)
                 this.error = error.message
+                this.currentCertificate = null
+
                 return {
                     success: false,
                     error: error.message
@@ -125,35 +146,30 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         /**
-         * 강의의 수료증 확인
+         * 특정 강의의 수료증 가져오기
+         */
+        getCertificateByCourse(courseId) {
+            return this.userCertificates.find(cert => cert.courseId === courseId)
+        },
+
+        /**
+         * 강의 수료증 확인
          */
         async checkCourseCertificate(userId, courseId) {
             try {
                 const result = await CertificateService.getCourseCertificate(userId, courseId)
 
-                if (result.success) {
-                    // 이미 목록에 없다면 추가
-                    const exists = this.certificates.find(cert => cert.id === result.data.id)
-                    if (!exists) {
-                        this.certificates.push(result.data)
-                    }
-
-                    return {
-                        success: true,
-                        hasCertificate: true,
-                        certificate: result.data
-                    }
-                } else {
-                    return {
-                        success: true,
-                        hasCertificate: false
-                    }
+                return {
+                    success: true,
+                    hasCertificate: result.success && result.data !== null,
+                    certificate: result.data
                 }
             } catch (error) {
                 console.error('수료증 확인 오류:', error)
                 return {
                     success: false,
-                    error: error.message
+                    hasCertificate: false,
+                    certificate: null
                 }
             }
         },
@@ -164,9 +180,18 @@ export const useCertificateStore = defineStore('certificate', {
         async verifyCertificate(certificateId) {
             try {
                 const result = await CertificateService.verifyCertificate(certificateId)
+
+                if (result.success && result.valid) {
+                    ElMessage.success('유효한 수료증입니다')
+                } else {
+                    ElMessage.error(result.error || '유효하지 않은 수료증입니다')
+                }
+
                 return result
             } catch (error) {
-                console.error('수료증 검증 오류:', error)
+                console.error('수료증 검증 실패:', error)
+                ElMessage.error('수료증 검증 중 오류가 발생했습니다')
+
                 return {
                     success: false,
                     valid: false,
@@ -176,20 +201,42 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         /**
-         * 현재 수료증 초기화
+         * 수료증 통계 로드
          */
-        clearCurrentCertificate() {
-            this.currentCertificate = null
+        async loadCertificateStats(userId) {
+            try {
+                const stats = await CertificateService.getCertificateStats(userId)
+                return stats
+            } catch (error) {
+                console.error('수료증 통계 로드 실패:', error)
+                return {
+                    total: 0,
+                    byCategory: {},
+                    recentCertificates: []
+                }
+            }
         },
 
         /**
          * 스토어 초기화
          */
-        resetStore() {
+        reset() {
             this.certificates = []
+            this.userCertificates = []
             this.currentCertificate = null
             this.isLoading = false
             this.error = null
         }
+    },
+
+    persist: {
+        enabled: true,
+        strategies: [
+            {
+                key: 'certificate-store',
+                storage: sessionStorage,
+                paths: ['userCertificates']
+            }
+        ]
     }
 })

@@ -86,11 +86,11 @@ class EnrollmentService {
                 enrollments.push({
                     id: doc.id,
                     ...doc.data(),
-                    enrolledAt: doc.data().enrolledAt?.toDate() || new Date()
+                    enrolledAt: doc.data().enrolledAt?.toDate() || new Date(doc.data().enrolledAt)
                 })
             })
 
-            // 캐시에 저장
+            // 캐시 저장
             this.setCache(cacheKey, enrollments)
 
             return enrollments
@@ -101,21 +101,30 @@ class EnrollmentService {
     }
 
     /**
-     * 게스트 수강 정보 가져오기 (localStorage)
+     * 특정 수강 정보 가져오기
      */
-    static getGuestEnrollments() {
+    static async getEnrollment(userId, courseId) {
         try {
-            const enrollmentsKey = `${this.CACHE_KEY_PREFIX}guest`
-            const saved = localStorage.getItem(enrollmentsKey)
-
-            if (saved) {
-                return JSON.parse(saved)
+            if (!userId || userId === 'guest') {
+                const guestEnrollments = this.getGuestEnrollments()
+                return guestEnrollments.find(e => e.courseId === courseId) || null
             }
 
-            return []
+            const enrollmentId = `${userId}_${courseId}`
+            const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId)
+            const enrollmentSnap = await getDoc(enrollmentRef)
+
+            if (!enrollmentSnap.exists()) {
+                return null
+            }
+
+            return {
+                id: enrollmentSnap.id,
+                ...enrollmentSnap.data()
+            }
         } catch (error) {
-            console.error('게스트 수강 정보 로드 오류:', error)
-            return []
+            console.error('수강 정보 조회 오류:', error)
+            return null
         }
     }
 
@@ -128,28 +137,31 @@ class EnrollmentService {
                 return this.enrollGuestCourse(courseId, additionalData)
             }
 
-            // 중복 수강 확인
-            const existingEnrollment = await this.getEnrollment(userId, courseId)
-            if (existingEnrollment) {
-                console.log('이미 수강 중인 강의입니다.')
-                return existingEnrollment
+            const enrollmentId = `${userId}_${courseId}`
+            const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId)
+
+            // 중복 체크
+            const existingEnrollment = await getDoc(enrollmentRef)
+            if (existingEnrollment.exists()) {
+                return {
+                    id: enrollmentId,
+                    ...existingEnrollment.data(),
+                    alreadyEnrolled: true
+                }
             }
 
-            // 수강 데이터 생성
+            // 수강 정보 생성
             const enrollmentData = {
                 userId,
                 courseId,
+                status: 'enrolled',
+                progress: 0,
                 enrolledAt: serverTimestamp(),
                 lastAccessedAt: serverTimestamp(),
-                progress: 0,
-                status: 'enrolled',
-                preferredLanguage: additionalData.language || 'ko',
+                updatedAt: serverTimestamp(),
                 ...additionalData
             }
 
-            // Custom ID로 문서 생성 (userId_courseId)
-            const enrollmentId = `${userId}_${courseId}`
-            const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId)
             await setDoc(enrollmentRef, enrollmentData)
 
             // 캐시 무효화
@@ -157,8 +169,7 @@ class EnrollmentService {
 
             return {
                 id: enrollmentId,
-                ...enrollmentData,
-                enrolledAt: new Date()
+                ...enrollmentData
             }
         } catch (error) {
             console.error('수강 신청 오류:', error)
@@ -167,65 +178,45 @@ class EnrollmentService {
     }
 
     /**
-     * 게스트 수강 신청
+     * 게스트 수강 정보 관리
      */
-    static enrollGuestCourse(courseId, additionalData = {}) {
+    static getGuestEnrollments() {
         try {
-            const enrollments = this.getGuestEnrollments()
-
-            // 중복 확인
-            const existing = enrollments.find(e => e.courseId === courseId)
-            if (existing) {
-                return existing
-            }
-
-            const newEnrollment = {
-                id: `guest_${courseId}`,
-                userId: 'guest',
-                courseId,
-                enrolledAt: new Date().toISOString(),
-                lastAccessedAt: new Date().toISOString(),
-                progress: 0,
-                status: 'enrolled',
-                preferredLanguage: additionalData.language || 'ko',
-                ...additionalData
-            }
-
-            enrollments.push(newEnrollment)
-            localStorage.setItem(`${this.CACHE_KEY_PREFIX}guest`, JSON.stringify(enrollments))
-
-            return newEnrollment
+            const stored = localStorage.getItem(`${this.CACHE_KEY_PREFIX}guest`)
+            return stored ? JSON.parse(stored) : []
         } catch (error) {
-            console.error('게스트 수강 신청 오류:', error)
-            throw error
+            console.error('게스트 수강 정보 로드 오류:', error)
+            return []
         }
     }
 
-    /**
-     * 단일 수강 정보 가져오기
-     */
-    static async getEnrollment(userId, courseId) {
+    static enrollGuestCourse(courseId, additionalData = {}) {
         try {
-            if (!userId || userId === 'guest') {
-                const enrollments = this.getGuestEnrollments()
-                return enrollments.find(e => e.courseId === courseId)
+            const enrollments = this.getGuestEnrollments()
+            const existing = enrollments.find(e => e.courseId === courseId)
+
+            if (existing) {
+                return { ...existing, alreadyEnrolled: true }
             }
 
-            const enrollmentId = `${userId}_${courseId}`
-            const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId)
-            const enrollmentSnap = await getDoc(enrollmentRef)
-
-            if (enrollmentSnap.exists()) {
-                return {
-                    id: enrollmentSnap.id,
-                    ...enrollmentSnap.data()
-                }
+            const enrollment = {
+                id: `guest_${courseId}_${Date.now()}`,
+                userId: 'guest',
+                courseId,
+                status: 'enrolled',
+                progress: 0,
+                enrolledAt: new Date().toISOString(),
+                lastAccessedAt: new Date().toISOString(),
+                ...additionalData
             }
 
-            return null
+            enrollments.push(enrollment)
+            localStorage.setItem(`${this.CACHE_KEY_PREFIX}guest`, JSON.stringify(enrollments))
+
+            return enrollment
         } catch (error) {
-            console.error('수강 정보 조회 오류:', error)
-            return null
+            console.error('게스트 수강 신청 오류:', error)
+            throw error
         }
     }
 
@@ -290,34 +281,55 @@ class EnrollmentService {
     }
 
     /**
-     * 수료 처리
+     * 수료 처리 (개선됨)
      */
     static async completeCourse(userId, courseId, certificateData = {}) {
         try {
-            // 수강 정보 업데이트
-            await this.updateEnrollment(userId, courseId, {
+            console.log('📋 수료 처리 시작:', { userId, courseId })
+
+            // 1. 수강 정보를 completed로 업데이트
+            const enrollmentId = `${userId}_${courseId}`
+            const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, enrollmentId)
+
+            // 현재 enrollment 정보 확인
+            const enrollmentSnap = await getDoc(enrollmentRef)
+            if (!enrollmentSnap.exists()) {
+                throw new Error('수강 정보를 찾을 수 없습니다.')
+            }
+
+            const currentData = enrollmentSnap.data()
+
+            // 이미 완료된 경우 중복 처리 방지
+            if (currentData.status === 'completed') {
+                console.log('⚠️ 이미 수료된 강의입니다.')
+                return {
+                    success: true,
+                    alreadyCompleted: true
+                }
+            }
+
+            // 수료 정보 업데이트
+            await updateDoc(enrollmentRef, {
                 status: 'completed',
                 completedAt: serverTimestamp(),
                 progress: 100,
-                certificateIssued: !!certificateData.certificateId
+                lastAccessedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
             })
 
-            // 수료증 발급 (옵션)
-            if (certificateData.courseTitle) {
-                const certificateRef = collection(db, FIREBASE_COLLECTIONS.CERTIFICATES)
-                await addDoc(certificateRef, {
-                    userId,
-                    courseId,
-                    courseTitle: certificateData.courseTitle,
-                    userName: certificateData.userName || 'Unknown',
-                    issuedAt: serverTimestamp(),
-                    certificateNumber: this.generateCertificateNumber()
-                })
+            console.log('✅ 수강 상태를 completed로 업데이트했습니다.')
+
+            // 캐시 무효화
+            this.invalidateUserCache(userId)
+
+            return {
+                success: true,
+                enrollmentId,
+                completedAt: new Date()
             }
 
-            return true
         } catch (error) {
-            console.error('수료 처리 오류:', error)
+            console.error('❌ 수료 처리 오류:', error)
             throw error
         }
     }
@@ -388,15 +400,20 @@ class EnrollmentService {
             }
 
             enrollments.forEach(enrollment => {
-                if (enrollment.status === 'completed' || enrollment.progress >= 100) {
-                    stats.completed++
-                } else if (enrollment.progress > 0) {
-                    stats.inProgress++
-                } else {
-                    stats.notStarted++
+                switch (enrollment.status) {
+                    case 'completed':
+                        stats.completed++
+                        break
+                    case 'enrolled':
+                        if (enrollment.progress > 0) {
+                            stats.inProgress++
+                        } else {
+                            stats.notStarted++
+                        }
+                        break
                 }
 
-                // 학습 시간 누적 (분 단위)
+                // 학습 시간 합산 (분 단위)
                 stats.totalStudyTime += enrollment.studyTime || 0
             })
 

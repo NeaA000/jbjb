@@ -96,17 +96,17 @@ const router = createRouter({
                 title: '내 수료증'
             }
         },
-        // 수료증 상세 페이지 - 아직 구현되지 않음
-        // {
-        //     path: '/certificate/:id',
-        //     name: 'certificate-detail',
-        //     component: () => import('@/views/certificate/CertificateDetailView.vue'),
-        //     props: true,
-        //     meta: {
-        //         requiresAuth: true,
-        //         title: '수료증 상세'
-        //     }
-        // },
+        // 수료증 상세 페이지 - 활성화
+        {
+            path: '/certificates/:id',
+            name: 'certificate-detail',
+            component: () => import('@/views/certificate/CertificateDetailView.vue'),
+            props: true,
+            meta: {
+                requiresAuth: true,
+                title: '수료증 상세'
+            }
+        },
         {
             path: '/profile',
             name: 'profile',

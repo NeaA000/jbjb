@@ -121,11 +121,12 @@
           </button>
           <button
               v-if="progress === 100"
-              @click="downloadCertificate"
+              @click="handleCertificateAction"
               class="btn btn-primary"
+              :disabled="isGeneratingCertificate"
           >
             <Award :size="18" />
-            수료증 다운로드
+            {{ getCertificateButtonText() }}
           </button>
         </div>
       </div>
@@ -150,8 +151,11 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCourseStore } from '@/stores/course'
+import { useCertificateStore } from '@/stores/certificate'
 import CourseService from '@/services/courseService'
+import EnrollmentService from '@/services/enrollmentService'
 import LoadingSpinner from '@/common/LoadingSpinner.vue'
+import { ElMessage } from 'element-plus'
 import {
   AlertCircle,
   Clock,
@@ -169,6 +173,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const courseStore = useCourseStore()
+const certificateStore = useCertificateStore()
 
 // Props
 const props = defineProps({
@@ -189,6 +194,10 @@ const progress = ref(0)
 const showShakeWarning = ref(false)
 const availableLanguages = ref(['ko']) // 사용 가능한 언어 목록
 
+// 수료증 관련 상태 추가
+const isGeneratingCertificate = ref(false)
+const hasCertificate = ref(false)
+
 // 비디오 관련 상태 추가
 const videoPlayer = ref(null)
 const videoLoading = ref(false)
@@ -202,6 +211,9 @@ const lastWatchedTime = ref(0)
 // 진행률 저장 디바운싱
 let progressSaveTimer = null
 let beforeUnloadHandler = null
+
+// 수료 처리 중복 방지
+const isCompletingCourse = ref(false)
 
 // 언어 이름 맵핑
 const languageNames = {
@@ -375,48 +387,186 @@ const loadProgress = async () => {
   }
 }
 
-// 진행률 저장 (디바운싱 적용)
-const saveProgress = async () => {
-  try {
-    if (authStore.user) {
-      // Firebase에 저장
-      const progressId = `${authStore.user.uid}_${courseId.value}`
-      const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
+// 진행률 저장 (디바운싱 적용) - 수정됨
+const saveProgress = async (forceImmediate = false) => {
+  if (!course.value || !authStore.isAuthenticated) return
 
-      const progressData = {
-        userId: authStore.user.uid,
-        courseId: courseId.value,
-        progress: progress.value,
-        lastWatchedTime: currentTime.value,
-        updatedAt: serverTimestamp(),
-        completed: progress.value >= 100,
-        duration: duration.value,
-        language: currentLanguage.value
+  // 즉시 저장이 필요한 경우 타이머 클리어
+  if (forceImmediate && progressSaveTimer) {
+    clearTimeout(progressSaveTimer)
+    progressSaveTimer = null
+  }
+
+  // 이미 저장 중이면 스킵
+  if (!forceImmediate && progressSaveTimer) return
+
+  const doSave = async () => {
+    try {
+      const newProgress = Math.round(progress.value)
+
+      if (authStore.user) {
+        // Firebase에 저장
+        const progressId = `${authStore.user.uid}_${courseId.value}`
+        const progressRef = doc(db, FIREBASE_COLLECTIONS.PROGRESS, progressId)
+
+        const progressData = {
+          userId: authStore.user.uid,
+          courseId: courseId.value,
+          progress: newProgress,
+          lastWatchedTime: currentTime.value,
+          updatedAt: serverTimestamp(),
+          completed: newProgress >= 100,
+          duration: duration.value,
+          language: currentLanguage.value
+        }
+
+        await setDoc(progressRef, progressData, { merge: true })
+        console.log(`💾 진행률 저장: ${newProgress}%, 시간: ${currentTime.value}초`)
+
+        // 진행률 스토어 업데이트
+        await courseStore.updateProgress(course.value.id, newProgress)
+      } else {
+        // 게스트는 로컬스토리지에 저장
+        localStorage.setItem(`progress_${courseId.value}`, newProgress.toString())
+        localStorage.setItem(`lastTime_${courseId.value}`, currentTime.value.toString())
       }
+    } catch (error) {
+      console.error('진행률 저장 실패:', error)
+    }
+  }
 
-      await setDoc(progressRef, progressData, { merge: true })
-      console.log(`💾 진행률 저장: ${progress.value}%, 시간: ${currentTime.value}초`)
+  if (forceImmediate) {
+    await doSave()
+  } else {
+    // 디바운싱: 5초 후 저장
+    progressSaveTimer = setTimeout(doSave, 5000)
+  }
+}
+
+// 강의 수료 처리 (수정됨)
+const completeCourse = async () => {
+  if (!authStore.isAuthenticated || authStore.isGuest || isCompletingCourse.value) return
+
+  try {
+    isCompletingCourse.value = true
+    console.log('🎯 강의 수료 처리 시작...')
+
+    // 1. 먼저 100% 진행률 저장
+    progress.value = 100
+    await saveProgress(true) // 즉시 저장
+
+    // 2. 수료 상태 업데이트
+    await EnrollmentService.completeCourse(authStore.user.uid, courseId.value)
+
+    // 3. 강의 상태 업데이트
+    await courseStore.updateEnrollmentStatus(course.value.id, 'completed')
+
+    console.log('✅ 강의 수료 처리 완료')
+
+    // 4. 수료증 자동 생성 체크
+    await checkAndGenerateCertificate()
+
+  } catch (error) {
+    console.error('강의 수료 처리 오류:', error)
+  } finally {
+    isCompletingCourse.value = false
+  }
+}
+
+// 수료증 확인 및 생성 (수정됨)
+const checkAndGenerateCertificate = async () => {
+  if (!authStore.isAuthenticated || authStore.isGuest) return
+
+  try {
+    // 이미 수료증이 있는지 확인
+    const existingCert = await certificateStore.checkCourseCertificate(
+        authStore.user.uid,
+        course.value.id
+    )
+
+    if (existingCert.hasCertificate) {
+      hasCertificate.value = true
+      console.log('✅ 이미 수료증이 있습니다')
+      return
+    }
+
+    // 수료증 자동 생성
+    console.log('🎖️ 수료증 자동 생성 시작...')
+    isGeneratingCertificate.value = true
+
+    // 수료증 데이터 준비
+    const certificateData = {
+      userId: authStore.user.uid,
+      courseId: course.value.id,
+      courseName: course.value.title,
+      userName: authStore.user.displayName || authStore.user.email.split('@')[0],
+      birthDate: authStore.user.birthDate || '1990.01.01',
+      completedDate: new Date(),
+      progress: 100,
+      courseCategory: course.value.category?.main || '',
+      courseDuration: course.value.duration || '30분',
+      courseLanguage: currentLanguage.value || 'ko'
+    }
+
+    const result = await certificateStore.createCertificate(certificateData)
+
+    if (result.success) {
+      hasCertificate.value = true
+      ElMessage.success('축하합니다! 수료증이 발급되었습니다.')
+      console.log('🎉 수료증 생성 완료:', result.certificate)
     } else {
-      // 게스트는 로컬스토리지에 저장
-      localStorage.setItem(`progress_${courseId.value}`, progress.value.toString())
-      localStorage.setItem(`lastTime_${courseId.value}`, currentTime.value.toString())
+      console.error('수료증 생성 실패:', result.error)
     }
   } catch (error) {
-    console.error('진행률 저장 실패:', error)
+    console.error('수료증 생성 오류:', error)
+  } finally {
+    isGeneratingCertificate.value = false
+  }
+}
+
+// 수료증 버튼 텍스트
+const getCertificateButtonText = () => {
+  if (isGeneratingCertificate.value) return '생성 중...'
+  if (hasCertificate.value) return '수료증 보기'
+  return '수료증 받기'
+}
+
+// 수료증 액션 처리
+const handleCertificateAction = () => {
+  if (!course.value) return
+
+  if (hasCertificate.value) {
+    // 수료증이 있으면 상세 페이지로
+    const cert = certificateStore.getCertificateByCourse(course.value.id)
+    if (cert) {
+      router.push(`/certificates/${cert.id}`)
+    } else {
+      router.push(`/certificates?courseId=${course.value.id}`)
+    }
+  } else {
+    // 수료증이 없으면 생성
+    checkAndGenerateCertificate()
+  }
+}
+
+// 수료증 확인 함수
+const checkCertificate = async () => {
+  if (!authStore.isAuthenticated || authStore.isGuest || !course.value) return
+
+  try {
+    const result = await certificateStore.checkCourseCertificate(
+        authStore.user.uid,
+        course.value.id
+    )
+    hasCertificate.value = result.hasCertificate
+  } catch (error) {
+    console.error('수료증 확인 오류:', error)
   }
 }
 
 // 디바운싱된 진행률 저장
 const debouncedSaveProgress = () => {
-  // 기존 타이머 취소
-  if (progressSaveTimer) {
-    clearTimeout(progressSaveTimer)
-  }
-
-  // 5초 후에 저장
-  progressSaveTimer = setTimeout(() => {
-    saveProgress()
-  }, 5000)
+  saveProgress(false)
 }
 
 // 비디오 이벤트 핸들러
@@ -439,28 +589,15 @@ const onVideoPlay = () => {
 const onVideoPause = () => {
   isPlaying.value = false
   // 일시정지 시 즉시 진행률 저장
-  saveProgress()
+  saveProgress(true)
 }
 
 const onVideoEnded = async () => {
   isPlaying.value = false
-  progress.value = 100
-  await saveProgress()
-  console.log('🎉 강의 완료!')
+  console.log('🎬 비디오 종료됨')
 
-  // 수료 처리
-  if (authStore.user) {
-    try {
-      const enrollmentRef = doc(db, FIREBASE_COLLECTIONS.ENROLLMENTS, `${authStore.user.uid}_${courseId.value}`)
-      await setDoc(enrollmentRef, {
-        status: 'completed',
-        completedAt: serverTimestamp(),
-        progress: 100
-      }, { merge: true })
-    } catch (error) {
-      console.error('수료 처리 실패:', error)
-    }
-  }
+  // 강의 수료 처리
+  await completeCourse()
 }
 
 const onVideoError = (event) => {
@@ -549,17 +686,13 @@ const dismissShakeWarning = () => {
   showShakeWarning.value = false
 }
 
-// 수료증 다운로드
-const downloadCertificate = () => {
-  console.log('수료증 다운로드')
-  // TODO: 수료증 다운로드 구현
-  alert('수료증 다운로드 기능은 준비 중입니다.')
-}
-
 // 페이지 이탈 시 진행률 저장
 const handleBeforeUnload = (event) => {
   // 즉시 진행률 저장
-  saveProgress()
+  if (progressSaveTimer) {
+    clearTimeout(progressSaveTimer)
+  }
+  saveProgress(true)
 }
 
 // 언어 변경 감지
@@ -567,10 +700,11 @@ watch(currentLanguage, () => {
   updateVideoUrl()
 })
 
-// 마운트
+// 마운트 - 수정됨
 onMounted(async () => {
   // 강의 로드
   await loadCourse()
+  await checkCertificate()
 
   // 페이지 이탈 이벤트 리스너 등록
   beforeUnloadHandler = handleBeforeUnload
@@ -593,7 +727,7 @@ onUnmounted(() => {
   if (progressSaveTimer) {
     clearTimeout(progressSaveTimer)
   }
-  saveProgress()
+  saveProgress(true)
 
   // 이벤트 리스너 제거
   if (beforeUnloadHandler) {
@@ -864,10 +998,15 @@ onUnmounted(() => {
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--color-primary-dark, #5a67d8);
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
